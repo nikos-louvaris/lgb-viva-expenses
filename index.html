@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Σύστημα Εξόδων — AiWonderLab</title>
+<style>
+  :root{
+    --bg:#f5f6fa; --card:#fff; --ink:#171923; --muted:#697086; --line:#e6e8f0;
+    --brand:#4f46e5; --brand-soft:#eef2ff; --ok:#0f9d58; --ok-soft:#e6f6ec;
+    --warn:#d97706; --warn-soft:#fef3e2; --bad:#dc2626; --bad-soft:#fdeaea;
+    --info:#2563eb; --info-soft:#e8f0fe; --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  .app{max-width:1200px;margin:0 auto;padding:24px 20px 80px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+  .logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#4f46e5,#9333ea);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px}
+  h1{font-size:20px;font-weight:700}
+  .sub{color:var(--muted);font-size:12.5px}
+  .demo-badge{margin-left:auto;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px}
+  .month-picker{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-weight:600}
+  .month-picker button{border:none;background:none;cursor:pointer;font-size:15px;color:var(--brand);padding:2px 6px}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .kpi .label{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .kpi .value{font-size:24px;font-weight:800}
+  .kpi .hint{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .kpi.good .value{color:var(--ok)} .kpi.warn .value{color:var(--warn)} .kpi.bad .value{color:var(--bad)}
+
+  .tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .tab{padding:9px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-weight:600;color:var(--muted)}
+  .tab.active{background:var(--brand);border-color:var(--brand);color:#fff}
+  .tab .cnt{background:rgba(0,0,0,.08);border-radius:99px;padding:1px 8px;font-size:11.5px;margin-left:6px}
+  .tab.active .cnt{background:rgba(255,255,255,.25)}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);background:#fafbfe}
+  td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#f8f9ff}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .name{font-weight:700}
+  .mini{font-size:11.5px;color:var(--muted)}
+
+  .badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:700}
+  .b-ok{background:var(--ok-soft);color:var(--ok)}
+  .b-warn{background:var(--warn-soft);color:var(--warn)}
+  .b-bad{background:var(--bad-soft);color:var(--bad)}
+  .b-info{background:var(--info-soft);color:var(--info)}
+  .b-muted{background:#eef0f5;color:var(--muted)}
+
+  .bar{height:6px;border-radius:99px;background:#edeff5;overflow:hidden;min-width:90px}
+  .bar>i{display:block;height:100%;background:var(--ok)}
+
+  .btn{border:none;border-radius:9px;padding:8px 14px;font-weight:700;font-size:12.5px;cursor:pointer}
+  .btn-primary{background:var(--brand);color:#fff}
+  .btn-ghost{background:var(--brand-soft);color:var(--brand)}
+  .btn-warn{background:var(--warn-soft);color:var(--warn)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-sm{padding:6px 10px;font-size:11.5px}
+
+  /* drawer */
+  .overlay{position:fixed;inset:0;background:rgba(23,25,35,.45);display:none;z-index:40}
+  .overlay.show{display:block}
+  .drawer{position:fixed;top:0;right:-720px;width:min(700px,95vw);height:100vh;background:var(--card);z-index:50;transition:right .25s ease;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,.15)}
+  .drawer.show{right:0}
+  .drawer-head{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  .drawer-head h2{font-size:17px}
+  .drawer-close{margin-left:auto;border:none;background:#eef0f5;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:15px}
+  .drawer-body{padding:18px 22px;overflow-y:auto;flex:1}
+  .drawer-foot{padding:14px 22px;border-top:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap}
+
+  .charge{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .charge .amt{font-weight:800;font-size:15px;min-width:76px;text-align:right}
+  .charge .meta{flex:1;min-width:180px}
+  .charge .merchant{font-weight:700}
+  .flag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;margin-right:4px}
+  select.fix{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;background:#fff}
+
+  .smsbox{background:#101322;color:#e7e9f5;border-radius:14px;padding:18px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace}
+  .note{background:var(--brand-soft);border:1px solid #d9defc;border-radius:12px;padding:12px 14px;font-size:12.5px;color:#3730a3;margin:14px 0}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#171923;color:#fff;padding:12px 22px;border-radius:12px;font-weight:600;display:none;z-index:99}
+  .toast.show{display:block}
+  .section-title{font-weight:800;font-size:13px;margin:16px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .subtabs{display:flex;gap:6px;margin:0 0 14px}
+  .subtab{padding:7px 13px;border-radius:99px;font-weight:600;font-size:12.5px;cursor:pointer;background:#eef0f5;color:var(--muted);border:none}
+  .subtab.active{background:var(--ink);color:#fff}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  footer{margin-top:28px;color:var(--muted);font-size:11.5px;text-align:center}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">Æ</div>
+    <div>
+      <h1>Σύστημα Εξόδων</h1>
+      <div class="sub">AiWonderLab · Let's Go Bananas · κάρτες Viva</div>
+    </div>
+    <span class="demo-badge">DEMO · δοκιμαστικές χρεώσεις — πραγματικά ονόματα/κάρτες από Viva</span>
+    <div class="month-picker"><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">‹</button><span>Ιούνιος 2026</span><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">›</button></div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="projects" onclick="switchTab('projects')">Ανά Project <span class="cnt" id="cnt-projects"></span></button>
+    <button class="tab" data-tab="people" onclick="switchTab('people')">Ανά Άτομο <span class="cnt" id="cnt-people"></span></button>
+    <button class="tab" data-tab="orphans" onclick="switchTab('orphans')">Αταξινόμητα <span class="cnt" id="cnt-orphans"></span></button>
+    <button class="tab" data-tab="thekla" onclick="switchTab('thekla')">Προβολή Θέκλας</button>
+  </div>
+
+  <div class="panel" id="content"></div>
+
+  <footer>Πρωτότυπο v0.1 · 2/7/2026 · Οι χρεώσεις είναι δοκιμαστικές — η δομή, τα ονόματα και οι κάρτες είναι τα πραγματικά από τη Viva (PLAYGROUND LADS I.K.E.)</footer>
+</div>
+
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------------- ΔΕΔΟΜΕΝΑ ---------------- */
+// Πραγματικά wallets από Viva API (2/7/2026)
+const PEOPLE=[
+ {id:1,name:"Άγγελος Χρονόπουλος",card:"5588",phone:"69XXXXXXX1"},
+ {id:2,name:"Κ. Παρασκευόπουλος",card:"3029",phone:"69XXXXXXX2"},
+ {id:3,name:"Δήμητρα Λάκη",card:"1606",phone:"69XXXXXXX3"},
+ {id:4,name:"Α. Κολυγλιάτης",card:"3499",phone:"69XXXXXXX4"},
+ {id:5,name:"Άντα Μπαϊρακτάρη",card:"2673",phone:"69XXXXXXX5"},
+ {id:6,name:"Αναστασία Κοβάνη",card:"9440",phone:"69XXXXXXX6"},
+ {id:7,name:"Ιωάννα Σκούρα",card:"1790",phone:"69XXXXXXX7"},
+ {id:8,name:"Λουκία Μπαλτζή",card:"9600",phone:"69XXXXXXX8"},
+ {id:9,name:"Μ. Σιταροπούλου",card:"3026",phone:"69XXXXXXX9"},
+ {id:10,name:"Άγγελος Γκουτζέλας",card:"8076",phone:"69XXXXXX10"},
+ {id:11,name:"Μ. Θηβαίου",card:"3829",phone:"69XXXXXX11"},
+ {id:12,name:"Κώστας Κρυωνάς",card:"1288",phone:"69XXXXXX12"}
+];
+// Πραγματικά projects από Elorus (tracking category ΕΞΟΔΟΛΟΓΙΑ) — υποσύνολο για το demo
+const PROJECTS=["BWIN","ATTRATIVO","CAPRICE-SARANTIS","SEPHORA","PIZZA HUT","INTERSPORT","THE ELLINIKON","VODAFONE","CROCS","LET'S GO BANANAS","OTHER"];
+const INTERNAL="LET'S GO BANANAS";
+const MERCHANTS=[["Wolt",8,28],["FreeNow",5,19],["Shell",30,70],["ΑΒ Βασιλόπουλος",12,55],["Uber",6,22],["Πλαίσιο",15,120],["Κωτσόβολος",25,190],["Attica Parking",4,12],["Coffee Lab",3,9],["e-Table Εστιατόριο",35,110],["Beat",5,18],["ΟΑΣΑ",1.2,1.2],["Skroutz",10,80],["IKEA",20,150]];
+
+// Ντετερμινιστική "τυχαιότητα" ώστε το demo να είναι ίδιο κάθε φορά
+let seed=42; function rnd(){seed=(seed*16807)%2147483647;return (seed-1)/2147483646}
+function pick(a){return a[Math.floor(rnd()*a.length)]}
+
+// Παραγωγή δοκιμαστικών χρεώσεων Ιουνίου
+const CHARGES=[];
+let cid=1;
+PEOPLE.forEach(p=>{
+  const n=3+Math.floor(rnd()*5); // 3-7 χρεώσεις ανά άτομο
+  for(let i=0;i<n;i++){
+    const m=pick(MERCHANTS);
+    const amount=+(m[1]+rnd()*(m[2]-m[1])).toFixed(2);
+    const day=1+Math.floor(rnd()*28);
+    const r=rnd();
+    let receipt=true, project=pick(PROJECTS.filter(x=>x!=="OTHER"));
+    let comment=project;
+    if(r<0.14){receipt=false;project=null;comment="";}          // τίποτα
+    else if(r<0.30){receipt=false;comment=project;}             // χωρίς απόδειξη
+    else if(r<0.44){project=null;comment="";}                   // χωρίς project
+    else if(r<0.52){comment=project.toLowerCase();}             // greeklish πεζά — το ταιριάζει το σύστημα
+    CHARGES.push({id:cid++,personId:p.id,day,merchant:m[0],amount,receipt,project,comment,
+      internal:project===INTERNAL,approvedLoss:false});
+  }
+});
+// μερικές εσωτερικές
+[["Cosmote",42.9],["Adobe",64.5],["Google Workspace",33.2]].forEach(([m,a])=>{
+  CHARGES.push({id:cid++,personId:1,day:5,merchant:m,amount:a,receipt:true,project:INTERNAL,comment:"γραφειο",internal:true,approvedLoss:false});
+});
+
+/* ---------------- ΛΟΓΙΚΗ ---------------- */
+const fmt=n=>n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
+function status(c){
+  if(c.approvedLoss) return "ok";
+  if(c.receipt&&c.project) return "ok";
+  if(!c.receipt&&!c.project) return "both";
+  if(!c.receipt) return "noreceipt";
+  return "noproject";
+}
+const S_LABEL={ok:["Πλήρης","b-ok"],noreceipt:["Χωρίς απόδειξη","b-bad"],noproject:["Χωρίς project","b-warn"],both:["Λείπουν όλα","b-bad"]};
+function personCharges(pid){return CHARGES.filter(c=>c.personId===pid)}
+function missing(c){const s=status(c);return s!=="ok"}
+function person(pid){return PEOPLE.find(p=>p.id===pid)}
+
+/* ---------------- KPI ---------------- */
+function renderKPIs(){
+  const total=CHARGES.reduce((s,c)=>s+c.amount,0);
+  const done=CHARGES.filter(c=>!missing(c));
+  const pend=CHARGES.filter(missing);
+  const pendAmt=pend.reduce((s,c)=>s+c.amount,0);
+  const ppl=new Set(pend.map(c=>c.personId)).size;
+  const pct=Math.round(done.length/CHARGES.length*100);
+  document.getElementById("kpis").innerHTML=`
+    <div class="kpi"><div class="label">Σύνολο εξόδων Ιουνίου</div><div class="value">${fmt(total)}</div><div class="hint">${CHARGES.length} χρεώσεις σε ${PEOPLE.length} κάρτες</div></div>
+    <div class="kpi ${pct>=95?'good':pct>=75?'warn':'bad'}"><div class="label">Πλήρεις χρεώσεις</div><div class="value">${pct}%</div><div class="hint">στόχος ≥ 95%</div></div>
+    <div class="kpi ${pendAmt>0?'bad':'good'}"><div class="label">Σε εκκρεμότητα</div><div class="value">${fmt(pendAmt)}</div><div class="hint">${pend.length} χρεώσεις με ελλείψεις</div></div>
+    <div class="kpi ${ppl>0?'warn':'good'}"><div class="label">Άτομα με ελλείψεις</div><div class="value">${ppl}</div><div class="hint">από ${PEOPLE.length} με ενεργή κάρτα</div></div>`;
+}
+
+/* ---------------- TABS ---------------- */
+let TAB="projects";
+function switchTab(t){TAB=t;document.querySelectorAll(".tab").forEach(el=>el.classList.toggle("active",el.dataset.tab===t));render()}
+
+function render(){
+  renderKPIs();
+  const el=document.getElementById("content");
+  document.getElementById("cnt-projects").textContent=new Set(CHARGES.filter(c=>c.project&&!c.internal).map(c=>c.project)).size;
+  document.getElementById("cnt-people").textContent=PEOPLE.length;
+  document.getElementById("cnt-orphans").textContent=CHARGES.filter(c=>missing(c)||c.internal).length;
+  if(TAB==="projects") el.innerHTML=viewProjects();
+  else if(TAB==="people") el.innerHTML=viewPeople();
+  else if(TAB==="orphans") el.innerHTML=viewOrphans("noproject");
+  else el.innerHTML=viewThekla();
+}
+
+/* ---------------- ΑΝΑ PROJECT ---------------- */
+function projectRows(){
+  const map={};
+  CHARGES.filter(c=>c.project).forEach(c=>{
+    map[c.project]=map[c.project]||{project:c.project,total:0,n:0,ok:0,norec:0};
+    const m=map[c.project]; m.total+=c.amount; m.n++;
+    if(!missing(c)) m.ok++; else if(!c.receipt) m.norec++;
+  });
+  return Object.values(map).sort((a,b)=>b.total-a.total);
+}
+function viewProjects(){
+  const rows=projectRows();
+  const noproj=CHARGES.filter(c=>!c.project);
+  let html=`<table><thead><tr><th>Project</th><th class="num">Σύνολο</th><th class="num">Χρεώσεις</th><th>Πληρότητα</th><th class="num">Χωρίς απόδειξη</th><th>Κατάσταση</th><th></th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const pct=Math.round(r.ok/r.n*100);
+    const ready=r.ok===r.n;
+    html+=`<tr onclick="openProject('${r.project.replace(/'/g,"\\'")}')">
+      <td class="name">${r.project} ${r.project===INTERNAL?'<span class="mini">(εσωτερικά)</span>':''}</td>
+      <td class="num">${fmt(r.total)}</td><td class="num">${r.n}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%"></i></div><span class="mini">${r.ok}/${r.n}</span></div></td>
+      <td class="num">${r.norec||"—"}</td>
+      <td>${ready?'<span class="badge b-ok">Έτοιμο για κλείσιμο</span>':'<span class="badge b-warn">Εκκρεμότητες</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openProject('${r.project.replace(/'/g,"\\'")}')">Άνοιγμα</button></td></tr>`;
+  });
+  html+=`</tbody></table>`;
+  if(noproj.length) html+=`<div class="note" style="margin:14px">⚠️ ${noproj.length} χρεώσεις (${fmt(noproj.reduce((s,c)=>s+c.amount,0))}) δεν έχουν project — δες «Αταξινόμητα».</div>`;
+  return html;
+}
+function openProject(pr){
+  const list=CHARGES.filter(c=>c.project===pr).sort((a,b)=>a.day-b.day);
+  const ok=list.filter(c=>!missing(c)).length, ready=ok===list.length;
+  let body=list.map(chargeCard).join("");
+  openDrawer(`<div class="drawer-head"><h2>${pr}</h2>
+      ${ready?'<span class="badge b-ok">Έτοιμο</span>':'<span class="badge b-warn">'+(list.length-ok)+' εκκρεμότητες</span>'}
+      <button class="drawer-close" onclick="closeDrawer()">✕</button></div>
+    <div class="drawer-body">
+      <div class="section-title">${list.length} χρεώσεις · ${fmt(list.reduce((s,c)=>s+c.amount,0))}</div>${body}
+    </div>
+    <div class="drawer-foot">
+      <button class="btn btn-primary" ${ready?"":"disabled"} onclick="toast('${ready?"Το κλείσιμο μήνα θα ενεργοποιηθεί στην πλήρη έκδοση":""}')">🔒 Κλείσιμο μήνα</button>
+      <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα στείλει ZIP εικόνων + Excel στη Θέκλα (πλήρης έκδοση)')">📤 Στείλε στη Θέκλα</button>
+      <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα καταχωρήσει τα έξοδα στο Elorus LGB → ΕΞΟΔΟΛΟΓΙΑ: ${pr.replace(/'/g,"\\'")} (πλήρης έκδοση)')">📗 Στείλε στο Elorus</button>
+      ${ready?"":'<span class="mini" style="align-self:center">Κλειδωμένο μέχρι να λυθούν οι εκκρεμότητες (ή override από admin)</span>'}
+    </div>`);
+}
+
+/* ---------------- ΑΝΑ ΑΤΟΜΟ ---------------- */
+function viewPeople(){
+  let html=`<table><thead><tr><th>Όνομα</th><th class="mini">Κάρτα</th><th class="num">Σύνολο</th><th>Πληρότητα</th><th class="num">Σε εκκρεμότητα</th><th>Τελευταία ειδοποίηση</th><th></th></tr></thead><tbody>`;
+  PEOPLE.forEach(p=>{
+    const list=personCharges(p.id);
+    if(!list.length) return;
+    const miss=list.filter(missing);
+    const pct=Math.round((list.length-miss.length)/list.length*100);
+    const pendAmt=miss.reduce((s,c)=>s+c.amount,0);
+    html+=`<tr onclick="openPerson(${p.id})">
+      <td class="name">${p.name}</td><td class="mini">•••• ${p.card}</td>
+      <td class="num">${fmt(list.reduce((s,c)=>s+c.amount,0))}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%;background:${pct===100?'var(--ok)':pct>=60?'var(--warn)':'var(--bad)'}"></i></div><span class="mini">${list.length-miss.length}/${list.length}</span></div></td>
+      <td class="num">${miss.length?fmt(pendAmt):"—"}</td>
+      <td class="mini">${miss.length?"πριν 3 ώρες":"—"}</td>
+      <td>${miss.length?`<button class="btn btn-warn btn-sm" onclick="event.stopPropagation();previewMsg(${p.id})">✉️ Υπενθύμιση</button>`:'<span class="badge b-ok">ΟΚ</span>'}</td></tr>`;
+  });
+  return html+`</tbody></table>`;
+}
+function openPerson(pid){
+  const p=person(pid); const list=personCharges(pid).sort((a,b)=>a.day-b.day);
+  const miss=list.filter(missing);
+  openDrawer(`<div class="drawer-head"><h2>${p.name}</h2><span class="mini">Viva •••• ${p.card}</span>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button></div>
+    <div class="drawer-body">
+      ${miss.length?`<div class="note">⚠️ ${miss.length} ελλείψεις συνολικού ποσού ${fmt(miss.reduce((s,c)=>s+c.amount,0))}. Το σύστημα στέλνει αυτόματα email 1 ώρα μετά τη χρέωση, συγκεντρωτικό στις 21:00, εβδομαδιαίο, και τελικό λογαριασμό στο κλείσιμο του μήνα.</div>`:'<div class="note" style="background:var(--ok-soft);border-color:#bfe8cd;color:var(--ok)">✅ Όλα πλήρη — καμία ειδοποίηση δεν χρειάζεται.</div>'}
+      ${list.map(chargeCard).join("")}
+    </div>
+    <div class="drawer-foot">
+      ${miss.length?`<button class="btn btn-warn" onclick="previewMsg(${pid})">💬 Προεπισκόπηση email υπενθύμισης</button>`:""}
+      <button class="btn btn-ghost" onclick="toast('Η προσωπική σελίδα ανοίγει από το link του SMS (πλήρης έκδοση)')">👤 Προσωπική σελίδα μέλους</button>
+    </div>`);
+}
+
+/* ---------------- SMS PREVIEW ---------------- */
+function previewMsg(pid){
+  const p=person(pid);
+  const miss=personCharges(pid).filter(missing);
+  const lines=miss.map(c=>{
+    const s=status(c);
+    const what=s==="both"?"δεν έχει τίποτα":s==="noreceipt"?"δεν έχει φωτογραφία":"δεν έχει project";
+    return `• ${String(c.day).padStart(2,"0")}/06 ${c.merchant} ${fmt(c.amount)} — ${what}`;
+  }).join("\n");
+  const first=p.name.split(" ")[0];
+  const sms=`${first}, σου λείπουν ${miss.length} πράγματα:\n${lines}\n\nΠέρνα τα στη Viva: vva.app/${p.card}${first[0].toLowerCase()}\nΌ,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο.`;
+  openDrawer(`<div class="drawer-head"><h2>Email → ${p.name}</h2><span class="mini">${p.phone}</span>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button></div>
+    <div class="drawer-body">
+      <div class="section-title">Έτσι θα φαίνεται το email (και το θέμα του θα δείχνει ποσό & πλήθος)</div>
+      <div class="smsbox">${sms}</div>
+      <div class="note">ℹ️ Πρόγραμμα ειδοποιήσεων (EMAIL): <b>1 ώρα</b> μετά τη χρέωση → πρώτο email · <b>21:00</b> συγκεντρωτικό ημέρας αν μένουν εκκρεμότητες · <b>1 εβδομάδα</b> αδιόρθωτο → υπενθύμιση · <b>τελευταία μέρα του μήνα (ίδια για όλους)</b> → τελικός λογαριασμός με όλες τις ποινές. Ό,τι μείνει χωρίς απόδειξη συμψηφίζεται με την αμοιβή από τα βίντεο — επιστρέφεται αν προσκομιστεί μετά. Κείμενα επεξεργάσιμα από Ρυθμίσεις.</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn btn-primary" onclick="toast('Η αυτόματη αποστολή email ενεργοποιείται στο deployment')">Στείλε τώρα</button>
+      <button class="btn btn-ghost" onclick="closeDrawer()">Κλείσιμο</button>
+    </div>`);
+}
+
+/* ---------------- ΑΤΑΞΙΝΟΜΗΤΑ ---------------- */
+function viewOrphans(sub){
+  const noproj=CHARGES.filter(c=>!c.project&&c.receipt);
+  const norec=CHARGES.filter(c=>!c.receipt);
+  const internal=CHARGES.filter(c=>c.internal);
+  const groups={noproject:noproj,noreceipt:norec,internal:internal};
+  const list=groups[sub];
+  let html=`<div style="padding:16px 16px 0"><div class="subtabs">
+    <button class="subtab ${sub==='noproject'?'active':''}" onclick="document.getElementById('content').innerHTML=viewOrphans('noproject')">Χωρίς project (${noproj.length})</button>
+    <button class="subtab ${sub==='noreceipt'?'active':''}" onclick="document.getElementById('content').innerHTML=viewOrphans('noreceipt')">Χωρίς απόδειξη (${norec.length})</button>
+    <button class="subtab ${sub==='internal'?'active':''}" onclick="document.getElementById('content').innerHTML=viewOrphans('internal')">Εσωτερικά (${internal.length})</button>
+  </div></div><div style="padding:0 16px 16px">`;
+  if(!list.length) html+=`<div class="empty">Τίποτα εδώ 🎉</div>`;
+  else html+=list.map(chargeCard).join("");
+  return html+"</div>";
+}
+
+/* ---------------- ΠΡΟΒΟΛΗ ΘΕΚΛΑΣ ---------------- */
+function viewThekla(sub){
+  sub=sub||"projects";
+  let inner="";
+  if(sub==="projects"){
+    const rows=projectRows();
+    inner=`<table><thead><tr><th>Project</th><th class="num">Σύνολο</th><th class="num">Χρεώσεις</th><th>Πληρότητα</th><th>Λήψεις (ανά πάσα στιγμή)</th></tr></thead><tbody>
+    ${rows.map(r=>{const pct=Math.round(r.ok/r.n*100);return `<tr><td class="name">${r.project}</td><td class="num">${fmt(r.total)}</td><td class="num">${r.n}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%"></i></div><span class="mini">${r.ok}/${r.n}</span></div></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει συνοπτικό PDF του ${r.project.replace(/'/g,"\\'")} (πλήρης έκδοση)')">PDF</button>
+          <button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει ZIP με όλες τις εικόνες αποδείξεων/τιμολογίων (πλήρης έκδοση)')">ZIP εικόνων</button>
+          <button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει Excel με όλες τις χρεώσεις (πλήρης έκδοση)')">Excel</button></td></tr>`}).join("")}
+    </tbody></table>`;
+  } else {
+    inner=`<table><thead><tr><th>Όνομα</th><th class="num">Ελλείψεις</th><th class="num">Ποσό σε εκκρεμότητα</th><th>Τελευταία ειδοποίηση</th><th></th></tr></thead><tbody>
+    ${PEOPLE.map(p=>{const miss=personCharges(p.id).filter(missing);if(!miss.length)return "";
+      return `<tr onclick="openPerson(${p.id})"><td class="name">${p.name}</td><td class="num">${miss.length}</td><td class="num">${fmt(miss.reduce((s,c)=>s+c.amount,0))}</td>
+      <td class="mini">πριν 3 ώρες</td>
+      <td><button class="btn btn-warn btn-sm" onclick="event.stopPropagation();previewMsg(${p.id})">✉️ Υπενθύμιση</button>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openPerson(${p.id})">Διόρθωση</button></td></tr>`}).join("")||'<tr><td colspan="5" class="empty">Καμία εκκρεμότητα 🎉</td></tr>'}
+    </tbody></table>`;
+  }
+  return `<div style="padding:18px">
+    <div class="note">👩‍💼 Προβολή λογίστριας (Θέκλα): <b>πλήρης πρόσβαση</b> — βλέπει και διορθώνει τα πάντα όπως ο CFO (projects σε ορφανά, εγκεκριμένες απώλειες, χειροκίνητες καταχωρήσεις), στέλνει υπενθυμίσεις σε όποιον χρειάζεται, και κατεβάζει ελεύθερα αποδείξεις/τιμολόγια/PDF/ZIP/Excel ανά πάσα στιγμή. Μόνο η πολιτική ποινών και το οριστικό κλείσιμο μήνα μένουν σε Κώστα/Λούβαρη. Κλικ σε άτομο ανοίγει την πλήρη καρτέλα του με δυνατότητα διόρθωσης.</div>
+    <div class="subtabs">
+      <button class="subtab ${sub==='projects'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('projects')">Έξοδα ανά project</button>
+      <button class="subtab ${sub==='pending'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('pending')">Εκκρεμότητες & υπενθυμίσεις</button>
+    </div>
+    ${inner}</div>`;
+}
+
+/* ---------------- ΚΑΡΤΑ ΧΡΕΩΣΗΣ ---------------- */
+function chargeCard(c){
+  const p=person(c.personId); const s=status(c); const [lbl,cls]=S_LABEL[s];
+  const autoMatched=c.project&&c.comment&&c.comment!==c.project;
+  return `<div class="charge">
+    <div class="amt">${fmt(c.amount)}</div>
+    <div class="meta">
+      <div class="merchant">${c.merchant} <span class="mini">· ${String(c.day).padStart(2,"0")}/06</span></div>
+      <div class="mini">${p.name} · •••• ${p.card}
+        ${c.comment?`· σχόλιο: «${c.comment}»${autoMatched?" <span title='Αναγνωρίστηκε αυτόματα'>✨→ "+c.project+"</span>":""}`:""}</div>
+    </div>
+    <div>
+      <span class="flag ${c.receipt?'b-ok':'b-bad'}">${c.receipt?"📎 απόδειξη":"χωρίς απόδειξη"}</span>
+      <span class="flag ${c.project?'b-info':'b-warn'}">${c.project?c.project:"χωρίς project"}</span>
+      <span class="badge ${cls}">${lbl}</span>
+    </div>
+    ${!c.project?`<select class="fix" onclick="event.stopPropagation()" onchange="fixProject(${c.id},this.value)">
+      <option value="">Όρισε project…</option>${PROJECTS.map(x=>`<option>${x}</option>`).join("")}</select>`:""}
+    ${!c.receipt&&!c.approvedLoss?`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();approveLoss(${c.id})" title="Όταν πραγματικά δεν υπάρχει απόδειξη">Εγκεκριμένη απώλεια</button>`:""}
+  </div>`;
+}
+function fixProject(id,val){if(!val)return;const c=CHARGES.find(x=>x.id===id);c.project=val;c.internal=val===INTERNAL;toast("Ορίστηκε project: "+val);closeDrawer();render()}
+function approveLoss(id){const c=CHARGES.find(x=>x.id===id);c.approvedLoss=true;toast("Μαρκαρίστηκε ως εγκεκριμένη απώλεια (με σημείωση CFO)");closeDrawer();render()}
+
+/* ---------------- HELPERS ---------------- */
+function openDrawer(html){document.getElementById("drawer").innerHTML=html;document.getElementById("drawer").classList.add("show");document.getElementById("overlay").classList.add("show")}
+function closeDrawer(){document.getElementById("drawer").classList.remove("show");document.getElementById("overlay").classList.remove("show")}
+let tt; function toast(msg){if(!msg)return;const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2600)}
+
+render();
+
+/* ---------- LIVE MODE: φόρτωση πραγματικών δεδομένων από /api/state ---------- */
+(async function live(){
+  try{
+    const r=await fetch("/api/state",{cache:"no-store"});
+    if(!r.ok) return; // τοπικό άνοιγμα αρχείου/σφάλμα -> μένει το demo
+    const d=await r.json();
+    if(Array.isArray(d.wallets)&&d.wallets.length){
+      const ws=d.wallets.filter(w=>w.hasIssuedCard&&!w.isPrimary&&w.friendlyName&&w.friendlyName!=="ακυρο");
+      PEOPLE.length=0;
+      ws.forEach((w,i)=>{
+        const m=w.friendlyName.match(/^(.*?)\s*(\d{4})$/);
+        PEOPLE.push({id:i+1,name:(m?m[1]:w.friendlyName).trim(),card:m?m[2]:"----",
+          phone:"",walletId:w.walletId,balance:w.amount});
+      });
+    }
+    if(Array.isArray(d.charges)&&d.charges.length){
+      CHARGES.length=0;
+      d.charges.forEach((c,i)=>{
+        const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
+        CHARGES.push({id:i+1,personId:p?p.id:0,day:new Date(c.occurred_at).getDate(),
+          merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
+          project:c.project||null,comment:c.comment||"",
+          internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
+      });
+      document.querySelector(".demo-badge").textContent="LIVE · πραγματικές χρεώσεις από Viva";
+      document.querySelector(".demo-badge").style.cssText="margin-left:auto;background:#e6f6ec;border:1px solid #86d3a2;color:#0f766e;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
+    } else if(Array.isArray(d.wallets)&&d.wallets.length){
+      document.querySelector(".demo-badge").textContent="LIVE κάρτες/υπόλοιπα · δοκιμαστικές χρεώσεις (αναμονή πρώτων κινήσεων)";
+    }
+    render();
+  }catch(e){/* offline/local demo */}
+})();
+</script>
+</body>
+</html>
