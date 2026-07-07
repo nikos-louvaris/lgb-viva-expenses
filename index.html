@@ -141,7 +141,10 @@ const PEOPLE=[
  {id:12,name:"Κώστας Κρυωνάς",card:"1288",phone:"69XXXXXX12"}
 ];
 // Πραγματικά projects από Elorus (tracking category ΕΞΟΔΟΛΟΓΙΑ) — υποσύνολο για το demo
-const PROJECTS=["BWIN","ATTRATIVO","CAPRICE-SARANTIS","SEPHORA","PIZZA HUT","INTERSPORT","THE ELLINIKON","VODAFONE","CROCS","LET'S GO BANANAS","OTHER"];
+// Πλήρης λίστα projects — συγχρονισμένη από Elorus ΕΞΟΔΟΛΟΓΙΑ (35) + OTHER
+const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SARANTIS-BECKMANN", "SARANTIS-DIRTY LAUNDRY", "TEZA-SARANTIS", "SEPHORA", "CROCS", "INTERSPORT", "PIZZA HUT", "K.F.C.", "PHARMASEPT", "KLINEX", "SANITAS", "STR8", "TSAKIRIS", "VODAFONE", "THE ELLINIKON", "SNAPPI", "COFEE ISLAND", "ALGIDA", "WOWCHI", "WOKSHOP", "Α Β ΒΑΣΙΛΟΠΟΥΛΟΣ", "ΚΩΤΣΟΒΟΛΟΣ-GINGER", "ΜΕΤΑΙΧΜΙΟ", "ΓΕΜΙΣΤΑ", "2ΓΕΜΙΣΤΑ ΠΑΠΑΔΟΠΟΥΛΟΥ", "ΒΙΤΑΜ", "NEW HOME", "SFN NOSTOS", "SNF NIARXOS", "Shell", "JOWAE", "LET'S GO BANANAS", "OTHER"];
+// μικρό υποσύνολο μόνο για την παραγωγή δοκιμαστικών χρεώσεων
+const DEMO_POOL=["BWIN","ATTRATIVO","CAPRICE-SARANTIS","SEPHORA","PIZZA HUT","INTERSPORT","THE ELLINIKON","VODAFONE","CROCS","SFN NOSTOS","SNF NIARXOS","LET'S GO BANANAS"];
 const INTERNAL="LET'S GO BANANAS";
 const MERCHANTS=[["Wolt",8,28],["FreeNow",5,19],["Shell",30,70],["ΑΒ Βασιλόπουλος",12,55],["Uber",6,22],["Πλαίσιο",15,120],["Κωτσόβολος",25,190],["Attica Parking",4,12],["Coffee Lab",3,9],["e-Table Εστιατόριο",35,110],["Beat",5,18],["ΟΑΣΑ",1.2,1.2],["Skroutz",10,80],["IKEA",20,150]];
 
@@ -159,7 +162,7 @@ PEOPLE.forEach(p=>{
     const amount=+(m[1]+rnd()*(m[2]-m[1])).toFixed(2);
     const day=1+Math.floor(rnd()*28);
     const r=rnd();
-    let receipt=true, project=pick(PROJECTS.filter(x=>x!=="OTHER"));
+    let receipt=true, project=pick(DEMO_POOL);
     let comment=project;
     if(r<0.14){receipt=false;project=null;comment="";}          // τίποτα
     else if(r<0.30){receipt=false;comment=project;}             // χωρίς απόδειξη
