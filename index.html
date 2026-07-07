@@ -18,7 +18,7 @@
   .logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#4f46e5,#9333ea);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px}
   h1{font-size:20px;font-weight:700}
   .sub{color:var(--muted);font-size:12.5px}
-  .demo-badge{margin-left:auto;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px}
+  .demo-badge{background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px}
   .month-picker{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-weight:600}
   .month-picker button{border:none;background:none;cursor:pointer;font-size:15px;color:var(--brand);padding:2px 6px}
 
@@ -90,7 +90,11 @@
   .subtab{padding:7px 13px;border-radius:99px;font-weight:600;font-size:12.5px;cursor:pointer;background:#eef0f5;color:var(--muted);border:none}
   .subtab.active{background:var(--ink);color:#fff}
   .empty{padding:40px;text-align:center;color:var(--muted)}
-  footer{margin-top:28px;color:var(--muted);font-size:11.5px;text-align:center}
+  .recon{display:flex;align-items:center;gap:10px;border-radius:12px;padding:10px 14px;margin-bottom:18px;font-size:12.5px;font-weight:600}
+  .recon.ok{background:var(--ok-soft);border:1px solid #bfe8cd;color:var(--ok)}
+  .recon.bad{background:var(--bad-soft);border:1px solid #f3b4b4;color:var(--bad)}
+  .recon .dot{width:9px;height:9px;border-radius:99px;background:currentColor;flex:none}
+    footer{margin-top:28px;color:var(--muted);font-size:11.5px;text-align:center}
 </style>
 </head>
 <body>
@@ -102,9 +106,12 @@
       <div class="sub">AiWonderLab · Let's Go Bananas · κάρτες Viva</div>
     </div>
     <span class="demo-badge">DEMO · δοκιμαστικές χρεώσεις — πραγματικά ονόματα/κάρτες από Viva</span>
-    <div class="month-picker"><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">‹</button><span>Ιούνιος 2026</span><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">›</button></div>
+    <button id="refreshBtn" class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="reloadState(true)">↻ Ανανέωση</button>
+    <span id="lastUpd" class="mini" style="align-self:center"></span>
+    <div class="month-picker" style="margin-left:10px"><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">‹</button><span>Ιούνιος 2026</span><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">›</button></div>
   </header>
 
+  <div class="recon ok" id="recon"></div>
   <div class="kpis" id="kpis"></div>
 
   <div class="tabs">
@@ -142,10 +149,10 @@ const PEOPLE=[
 ];
 // Πραγματικά projects από Elorus (tracking category ΕΞΟΔΟΛΟΓΙΑ) — υποσύνολο για το demo
 // Πλήρης λίστα projects — συγχρονισμένη από Elorus ΕΞΟΔΟΛΟΓΙΑ (35) + OTHER
-const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SARANTIS-BECKMANN", "TEZA-SARANTIS", "SEPHORA", "CROCS", "INTERSPORT", "SANITAS", "STR8", "TSAKIRIS", "VODAFONE", "THE ELLINIKON", "SNAPPI", "ALGIDA", "WOWCHI", "Α Β ΒΑΣΙΛΟΠΟΥΛΟΣ", "ΜΕΤΑΙΧΜΙΟ", "2ΓΕΜΙΣΤΑ ΠΑΠΑΔΟΠΟΥΛΟΥ", "SNF NIARXOS", "Shell", "JOWAE", "LET'S GO BANANAS", "LGB HOME", "OTHER"];
+const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SARANTIS-BECKMANN", "TEZA-SARANTIS", "SEPHORA", "CROCS", "INTERSPORT", "SANITAS", "STR8", "TSAKIRIS", "VODAFONE", "THE ELLINIKON", "SNAPPI", "ALGIDA", "WOWCHI", "Α Β ΒΑΣΙΛΟΠΟΥΛΟΣ", "ΜΕΤΑΙΧΜΙΟ", "2ΓΕΜΙΣΤΑ ΠΑΠΑΔΟΠΟΥΛΟΥ", "SNF NIARXOS", "Shell", "JOWAE", "LGB HOME", "OTHER"];
 // μικρό υποσύνολο μόνο για την παραγωγή δοκιμαστικών χρεώσεων
-const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME", "LET'S GO BANANAS"];
-const INTERNAL="LET'S GO BANANAS";
+const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME"];
+const INTERNAL="LGB HOME";
 const MERCHANTS=[["Wolt",8,28],["FreeNow",5,19],["Shell",30,70],["ΑΒ Βασιλόπουλος",12,55],["Uber",6,22],["Πλαίσιο",15,120],["Κωτσόβολος",25,190],["Attica Parking",4,12],["Coffee Lab",3,9],["e-Table Εστιατόριο",35,110],["Beat",5,18],["ΟΑΣΑ",1.2,1.2],["Skroutz",10,80],["IKEA",20,150]];
 
 // Ντετερμινιστική "τυχαιότητα" ώστε το demo να είναι ίδιο κάθε φορά
@@ -191,6 +198,41 @@ function personCharges(pid){return CHARGES.filter(c=>c.personId===pid)}
 function missing(c){const s=status(c);return s!=="ok"}
 function person(pid){return PEOPLE.find(p=>p.id===pid)}
 
+
+/* ---------------- ΔΙΚΛΕΙΔΑ ΣΥΜΦΩΝΙΑΣ (guard) ---------------- */
+function reconcile(){
+  const B={classified:{c:0,t:0},pending:{c:0,t:0},internal:{c:0,t:0},approved:{c:0,t:0}};
+  const problems=[];
+  CHARGES.forEach((ch,i)=>{
+    const s=status(ch);
+    let b;
+    if(ch.approvedLoss) b="approved";
+    else if(ch.internal) b="internal";
+    else if(s==="ok") b="classified";
+    else b="pending"; // noreceipt/noproject/both
+    if(typeof ch.amount!=="number"||isNaN(ch.amount)){problems.push("Χρέωση #"+i+" μη έγκυρο ποσό");return;}
+    B[b].c++; B[b].t=Math.round((B[b].t+ch.amount)*100)/100;
+  });
+  const cnt=B.classified.c+B.pending.c+B.internal.c+B.approved.c;
+  const tot=Math.round((B.classified.t+B.pending.t+B.internal.t+B.approved.t)*100)/100;
+  if(cnt!==CHARGES.length) problems.push("Λείπουν χρεώσεις: "+CHARGES.length+" σύνολο, "+cnt+" κατανεμήθηκαν");
+  const grand=Math.round(CHARGES.reduce((s,c)=>s+c.amount,0)*100)/100;
+  if(tot!==grand) problems.push("Ασυμφωνία ποσού: σύνολο "+grand+"€, κουβάδες "+tot+"€");
+  return {ok:problems.length===0,cnt,tot,B,problems};
+}
+function renderRecon(){
+  const r=reconcile();
+  const el=document.getElementById("recon");
+  el.className="recon "+(r.ok?"ok":"bad");
+  if(r.ok){
+    el.innerHTML='<span class="dot"></span>✓ Συμφωνία ελέγχθηκε — καμία χρέωση δεν λείπει · '
+      +'Σύνολο '+r.cnt+' χρεώσεις ('+fmt(r.tot)+') = Ταξινομημένες '+r.B.classified.c
+      +' + Εκκρεμότητες '+r.B.pending.c+' + Εσωτερικά '+r.B.internal.c+' + Εγκ.απώλειες '+r.B.approved.c;
+  } else {
+    el.innerHTML='<span class="dot"></span>⚠ ΠΡΟΣΟΧΗ — τα νούμερα δεν κλείνουν: '+r.problems.join(" · ");
+  }
+}
+
 /* ---------------- KPI ---------------- */
 function renderKPIs(){
   const total=CHARGES.reduce((s,c)=>s+c.amount,0);
@@ -211,6 +253,7 @@ let TAB="projects";
 function switchTab(t){TAB=t;document.querySelectorAll(".tab").forEach(el=>el.classList.toggle("active",el.dataset.tab===t));render()}
 
 function render(){
+  renderRecon();
   renderKPIs();
   const el=document.getElementById("content");
   document.getElementById("cnt-projects").textContent=new Set(CHARGES.filter(c=>c.project&&!c.internal).map(c=>c.project)).size;
@@ -255,17 +298,26 @@ function openProject(pr){
   const list=CHARGES.filter(c=>c.project===pr).sort((a,b)=>a.day-b.day);
   const ok=list.filter(c=>!missing(c)).length, ready=ok===list.length;
   let body=list.map(chargeCard).join("");
+  const total=list.reduce((s,c)=>s+c.amount,0);
+  const withRec=list.filter(c=>c.receipt).length;
   openDrawer(`<div class="drawer-head"><h2>${pr}</h2>
       ${ready?'<span class="badge b-ok">Έτοιμο</span>':'<span class="badge b-warn">'+(list.length-ok)+' εκκρεμότητες</span>'}
       <button class="drawer-close" onclick="closeDrawer()">✕</button></div>
     <div class="drawer-body">
-      <div class="section-title">${list.length} χρεώσεις · ${fmt(list.reduce((s,c)=>s+c.amount,0))}</div>${body}
+      <div class="section-title">${list.length} χρεώσεις · ${fmt(total)}
+        <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="copyText('${total.toFixed(2)}','Σύνολο ${pr.replace(/'/g,"\\'")}: ${fmt(total)} — αντιγράφηκε για το Elorus')">📋 Αντιγραφή συνόλου</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportProjectExcel('${pr.replace(/'/g,"\\'")}')">📊 Excel</button>
+      </div>
+      <div class="note" style="margin:10px 0">🧾 <b>Πακέτο λογίστριας — ${pr}</b>: ${withRec}/${list.length} με απόδειξη · σύνολο ${fmt(total)}. Κάθε απόδειξη μία-μία με τρέχον σύνολο. (Οι εικόνες εμφανίζονται μόλις ανοίξει το Viva PDF API.)</div>
+      ${receiptGallery(list)}
+      <div class="section-title" style="margin-top:20px">Αναλυτικά</div>${body}
     </div>
     <div class="drawer-foot">
+      <button class="btn btn-ghost" onclick="exportProjectExcel('${pr.replace(/'/g,"\\'")}')">📊 Excel</button>
+      <button class="btn btn-ghost" onclick="toast('Θα ενώσει όλες τις αποδείξεις/τιμολόγια του ${pr.replace(/'/g,"\\'")} σε ένα PDF με το σύνολο — ενεργό μόλις ανοίξει το Viva PDF API')">📄 Όλες οι αποδείξεις σε 1 PDF</button>
+      <button class="btn btn-ghost" onclick="toast('Θα κατεβάσει όλες τις εικόνες σε ZIP — ενεργό μόλις ανοίξει το Viva PDF API')">🗂 ZIP εικόνων</button>
       <button class="btn btn-primary" ${ready?"":"disabled"} onclick="toast('${ready?"Το κλείσιμο μήνα θα ενεργοποιηθεί στην πλήρη έκδοση":""}')">🔒 Κλείσιμο μήνα</button>
-      <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα στείλει ZIP εικόνων + Excel στη Θέκλα (πλήρης έκδοση)')">📤 Στείλε στη Θέκλα</button>
       <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα καταχωρήσει τα έξοδα στο Elorus LGB → ΕΞΟΔΟΛΟΓΙΑ: ${pr.replace(/'/g,"\\'")} (πλήρης έκδοση)')">📗 Στείλε στο Elorus</button>
-      ${ready?"":'<span class="mini" style="align-self:center">Κλειδωμένο μέχρι να λυθούν οι εκκρεμότητες (ή override από admin)</span>'}
     </div>`);
 }
 
@@ -355,7 +407,7 @@ function viewThekla(sub){
       <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%"></i></div><span class="mini">${r.ok}/${r.n}</span></div></td>
       <td><button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει συνοπτικό PDF του ${r.project.replace(/'/g,"\\'")} (πλήρης έκδοση)')">PDF</button>
           <button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει ZIP με όλες τις εικόνες αποδείξεων/τιμολογίων (πλήρης έκδοση)')">ZIP εικόνων</button>
-          <button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει Excel με όλες τις χρεώσεις (πλήρης έκδοση)')">Excel</button></td></tr>`}).join("")}
+          <button class="btn btn-ghost btn-sm" onclick="exportProjectExcel('${r.project.replace(/'/g,"\\'")}')">Excel</button></td></tr>`}).join("")}
     </tbody></table>`;
   } else {
     inner=`<table><thead><tr><th>Όνομα</th><th class="num">Ελλείψεις</th><th class="num">Ποσό σε εκκρεμότητα</th><th>Τελευταία ειδοποίηση</th><th></th></tr></thead><tbody>
@@ -399,6 +451,62 @@ function chargeCard(c){
 function fixProject(id,val){if(!val)return;const c=CHARGES.find(x=>x.id===id);c.project=val;c.internal=val===INTERNAL;toast("Ορίστηκε project: "+val);closeDrawer();render()}
 function approveLoss(id){const c=CHARGES.find(x=>x.id===id);c.approvedLoss=true;toast("Μαρκαρίστηκε ως εγκεκριμένη απώλεια (με σημείωση CFO)");closeDrawer();render()}
 
+
+/* ---------------- ΕΡΓΑΛΕΙΑ ΛΟΓΙΣΤΡΙΑΣ / ΑΝΑΓΝΩΣΗΣ ---------------- */
+// Αντιγραφή στο πρόχειρο (π.χ. σύνολο project για το Elorus)
+function copyText(txt,msg){
+  const t=String(txt);
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast(msg||("Αντιγράφηκε: "+t)));}
+  else{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(e){}ta.remove();toast(msg||("Αντιγράφηκε: "+t));}
+}
+// Παραγωγή & κατέβασμα CSV (ανοίγει και σε Excel) — δουλεύει ΤΩΡΑ
+function downloadCSV(rows,filename){
+  const esc=v=>{v=(v==null?"":String(v));return /[",;\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const csv="﻿"+rows.map(r=>r.map(esc).join(";")).join("\r\n"); // ; + BOM για ελληνικό Excel
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  toast("Κατέβηκε: "+filename);
+}
+// Excel γραμμές για ένα project (ή για όλα αν pr=null)
+function chargesToRows(list){
+  const rows=[["Ημ/νία","Κατάστημα","Ποσό (€)","Άτομο","Κάρτα","Project","Απόδειξη","Κατάσταση","Σχόλιο"]];
+  list.forEach(c=>{const p=person(c.personId);const s=status(c);const lbl=(S_LABEL[s]||["",""])[0];
+    rows.push([String(c.day).padStart(2,"0")+"/06",c.merchant,c.amount.toLocaleString("el-GR",{minimumFractionDigits:2}),
+      p?p.name:"—",p?("••••"+p.card):"",c.project||"",c.receipt?"ΝΑΙ":"ΟΧΙ",lbl,c.comment||""]);});
+  const tot=list.reduce((s,c)=>s+c.amount,0);
+  rows.push(["","ΣΥΝΟΛΟ",tot.toLocaleString("el-GR",{minimumFractionDigits:2}),"","","","","",""]);
+  return rows;
+}
+function exportProjectExcel(pr){
+  const list=CHARGES.filter(c=>c.project===pr);
+  downloadCSV(chargesToRows(list),"LGB_"+pr.replace(/[^A-Za-z0-9]/g,"_")+"_Ioynios2026.csv");
+}
+function exportPersonExcel(pid){
+  const p=person(pid); const list=personCharges(pid);
+  downloadCSV(chargesToRows(list),"LGB_"+p.name.replace(/[^A-Za-zΑ-Ωα-ω0-9]/g,"_")+"_Ioynios2026.csv");
+}
+// «Πακέτο λογίστριας»: κάθε απόδειξη μία-μία, με ποσό + τρέχον σύνολο
+function receiptGallery(list){
+  let running=0;
+  const cells=list.map((c,i)=>{
+    running+=c.amount;
+    const p=person(c.personId);
+    const thumb=c.receiptUrl
+      ? `<img src="${c.receiptUrl}" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0" />`
+      : `<div style="height:120px;display:flex;align-items:center;justify-content:center;background:#f1f3f9;border-radius:8px 8px 0 0;color:#98a0b3;font-size:26px">${c.receipt?"📄":"—"}</div>`;
+    return `<div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">
+      ${thumb}
+      <div style="padding:8px 10px">
+        <div style="font-weight:800">${fmt(c.amount)}</div>
+        <div class="mini">${c.merchant} · ${String(c.day).padStart(2,"0")}/06</div>
+        <div class="mini">${p?p.name:"—"} ${c.receipt?"":"· <b style='color:var(--bad)'>χωρίς απόδειξη</b>"}</div>
+        <div class="mini">τρέχον σύνολο: ${fmt(running)}</div>
+      </div></div>`;
+  }).join("");
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px">${cells}</div>`;
+}
+
 /* ---------------- HELPERS ---------------- */
 function openDrawer(html){document.getElementById("drawer").innerHTML=html;document.getElementById("drawer").classList.add("show");document.getElementById("overlay").classList.add("show")}
 function closeDrawer(){document.getElementById("drawer").classList.remove("show");document.getElementById("overlay").classList.remove("show")}
@@ -406,12 +514,16 @@ let tt; function toast(msg){if(!msg)return;const t=document.getElementById("toas
 
 render();
 
-/* ---------- LIVE MODE: φόρτωση πραγματικών δεδομένων από /api/state ---------- */
-(async function live(){
+/* ---------- LIVE MODE: αυτόματη ανανέωση από /api/state ---------- */
+let LIVE_OK=false;
+async function reloadState(manual){
   try{
+    const btn=document.getElementById("refreshBtn");
+    if(manual&&btn){btn.disabled=true;btn.textContent="↻ Ανανεώνει…";}
     const r=await fetch("/api/state",{cache:"no-store"});
-    if(!r.ok) return; // τοπικό άνοιγμα αρχείου/σφάλμα -> μένει το demo
+    if(!r.ok){ if(manual&&btn){btn.disabled=false;btn.textContent="↻ Ανανέωση";} return; }
     const d=await r.json();
+    LIVE_OK=true;
     if(Array.isArray(d.wallets)&&d.wallets.length){
       const ws=d.wallets.filter(w=>w.hasIssuedCard&&!w.isPrimary&&w.friendlyName&&w.friendlyName!=="ακυρο");
       PEOPLE.length=0;
@@ -436,8 +548,19 @@ render();
       document.querySelector(".demo-badge").textContent="LIVE κάρτες/υπόλοιπα · δοκιμαστικές χρεώσεις (αναμονή πρώτων κινήσεων)";
     }
     render();
-  }catch(e){/* offline/local demo */}
-})();
+    const lu=document.getElementById("lastUpd");
+    if(lu) lu.textContent="ενημερώθηκε "+new Date().toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    if(manual&&btn){btn.disabled=false;btn.textContent="↻ Ανανέωση";}
+  }catch(e){/* offline/local demo */
+    const b=document.getElementById("refreshBtn");
+    if(manual&&b){b.disabled=false;b.textContent="↻ Ανανέωση";}
+  }
+}
+// πρώτη φόρτωση + αυτόματη ανανέωση κάθε 30 δευτερόλεπτα (μόνο όταν είναι live)
+reloadState(false);
+setInterval(()=>{ if(LIVE_OK && !document.hidden) reloadState(false); }, 30000);
+// και ανανέωση μόλις επιστρέψεις στην καρτέλα
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && LIVE_OK) reloadState(false); });
 </script>
 </body>
 </html>
