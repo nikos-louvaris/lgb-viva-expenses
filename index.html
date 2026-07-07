@@ -533,7 +533,8 @@ async function reloadState(manual){
           phone:"",walletId:w.walletId,balance:w.amount});
       });
     }
-    if(Array.isArray(d.charges)&&d.charges.length){
+    // LIVE: πάντα καθάρισε τα δοκιμαστικά και βάλε ΜΟΝΟ ό,τι υπάρχει πραγματικά στη βάση
+    if(Array.isArray(d.charges)){
       CHARGES.length=0;
       d.charges.forEach((c,i)=>{
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
@@ -542,11 +543,18 @@ async function reloadState(manual){
           project:c.project||null,comment:c.comment||"",
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
-      document.querySelector(".demo-badge").textContent="LIVE · πραγματικές χρεώσεις από Viva";
-      document.querySelector(".demo-badge").style.cssText="margin-left:auto;background:#e6f6ec;border:1px solid #86d3a2;color:#0f766e;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
-    } else if(Array.isArray(d.wallets)&&d.wallets.length){
-      document.querySelector(".demo-badge").textContent="LIVE κάρτες/υπόλοιπα · δοκιμαστικές χρεώσεις (αναμονή πρώτων κινήσεων)";
+      const badge=document.querySelector(".demo-badge");
+      if(d.charges.length){
+        badge.textContent="LIVE · πραγματικές χρεώσεις από Viva";
+        badge.style.cssText="margin-left:auto;background:#e6f6ec;border:1px solid #86d3a2;color:#0f766e;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
+      }else{
+        badge.textContent="LIVE · καμία χρέωση ακόμα αυτόν τον μήνα — καθαρή εικόνα";
+        badge.style.cssText="margin-left:auto;background:#e8f0fe;border:1px solid #a9c7fb;color:#1a56db;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
+      }
     }
+    // ενημέρωσε τον μήνα στον τρέχοντα
+    const mp=document.querySelector(".month-picker span");
+    if(mp){const mn=["Ιανουάριος","Φεβρουάριος","Μάρτιος","Απρίλιος","Μάιος","Ιούνιος","Ιούλιος","Αύγουστος","Σεπτέμβριος","Οκτώβριος","Νοέμβριος","Δεκέμβριος"];const now=new Date();mp.textContent=mn[now.getMonth()]+" "+now.getFullYear();}
     render();
     const lu=document.getElementById("lastUpd");
     if(lu) lu.textContent="ενημερώθηκε "+new Date().toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
