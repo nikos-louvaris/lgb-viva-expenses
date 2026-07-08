@@ -76,4 +76,22 @@ async function sbSelect(table, query = "") {
   return r.json();
 }
 
-module.exports = { vivaToken, wallets, webhookKey, sbInsert, sbSelect };
+// Ενημέρωση γραμμής (π.χ. ορισμός project από τον CFO). filter π.χ. "id=eq.42"
+async function sbUpdate(table, filter, patch) {
+  const c = sb();
+  if (!c) return { skipped: true };
+  const r = await fetch(`${c.url}/rest/v1/${table}?${filter}`, {
+    method: "PATCH",
+    headers: {
+      apikey: c.key,
+      Authorization: `Bearer ${c.key}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(patch),
+  });
+  const body = r.ok ? await r.json() : null;
+  return { ok: r.ok, status: r.status, row: body && body[0] };
+}
+
+module.exports = { vivaToken, wallets, webhookKey, sbInsert, sbSelect, sbUpdate };
