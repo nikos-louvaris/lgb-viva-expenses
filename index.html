@@ -364,7 +364,7 @@ function previewMsg(pid){
   const lines=miss.map(c=>{
     const s=status(c);
     const what=s==="both"?"δεν έχει τίποτα":s==="noreceipt"?"δεν έχει φωτογραφία":"δεν έχει project";
-    return `• ${String(c.day).padStart(2,"0")}/06 ${c.merchant} ${fmt(c.amount)} — ${what}`;
+    return `• ${c.dm?c.dm+" "+c.hm:String(c.day).padStart(2,"0")+"/06"} ${c.merchant} ${fmt(c.amount)} — ${what}`;
   }).join("\n");
   const first=p.name.split(" ")[0];
   const sms=`${first}, σου λείπουν ${miss.length} πράγματα:\n${lines}\n\nΠέρνα τα στη Viva: vva.app/${p.card}${first[0].toLowerCase()}\nΌ,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο.`;
@@ -436,7 +436,7 @@ function chargeCard(c){
   return `<div class="charge">
     <div class="amt">${fmt(c.amount)}</div>
     <div class="meta">
-      <div class="merchant">${c.merchant} <span class="mini">· ${String(c.day).padStart(2,"0")}/06</span></div>
+      <div class="merchant">${c.merchant} <span class="mini">· ${c.dm?c.dm+" "+c.hm:String(c.day).padStart(2,"0")+"/06"}</span></div>
       <div class="mini">${p.name} · •••• ${p.card}
         ${c.comment?`· σχόλιο: «${c.comment}»${autoMatched?" <span title='Αναγνωρίστηκε αυτόματα'>✨→ "+c.project+"</span>":""}`:""}</div>
     </div>
@@ -544,7 +544,10 @@ async function reloadState(manual){
       d.charges.forEach((c)=>{
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
-        CHARGES.push({id:++idx,personId:p.id,day:new Date(c.occurred_at).getDate(),
+        const dt=new Date(c.occurred_at);
+        CHARGES.push({id:++idx,personId:p.id,day:dt.getDate(),when:c.occurred_at,
+          dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
+          hm:String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0"),
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
           project:c.project||null,comment:c.comment||"",
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
