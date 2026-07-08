@@ -533,18 +533,22 @@ async function reloadState(manual){
           phone:"",walletId:w.walletId,balance:w.amount});
       });
     }
-    // LIVE: πάντα καθάρισε τα δοκιμαστικά και βάλε ΜΟΝΟ ό,τι υπάρχει πραγματικά στη βάση
+    // LIVE: πάντα καθάρισε τα δοκιμαστικά και βάλε ΜΟΝΟ ό,τι υπάρχει πραγματικά στη βάση.
+    // Κρατάμε ΜΟΝΟ χρεώσεις που ανήκουν σε κάρτα-μέλους (υπάρχει άτομο να ανεβάσει απόδειξη).
+    // Χρεώσεις της κεντρικής/εταιρικής κάρτας (Primary) ΔΕΝ κυνηγιούνται — δεν ανήκουν σε άτομο.
     if(Array.isArray(d.charges)){
       CHARGES.length=0;
-      d.charges.forEach((c,i)=>{
+      let idx=0;
+      d.charges.forEach((c)=>{
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
-        CHARGES.push({id:i+1,personId:p?p.id:0,day:new Date(c.occurred_at).getDate(),
+        if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
+        CHARGES.push({id:++idx,personId:p.id,day:new Date(c.occurred_at).getDate(),
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
           project:c.project||null,comment:c.comment||"",
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
       const badge=document.querySelector(".demo-badge");
-      if(d.charges.length){
+      if(CHARGES.length){
         badge.textContent="LIVE · πραγματικές χρεώσεις από Viva";
         badge.style.cssText="margin-left:auto;background:#e6f6ec;border:1px solid #86d3a2;color:#0f766e;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
       }else{
