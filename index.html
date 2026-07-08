@@ -123,7 +123,7 @@
 
   <div class="panel" id="content"></div>
 
-  <footer>Πρωτότυπο v0.1 · 2/7/2026 · Οι χρεώσεις είναι δοκιμαστικές — η δομή, τα ονόματα και οι κάρτες είναι τα πραγματικά από τη Viva (PLAYGROUND LADS I.K.E.)</footer>
+  <footer>Σύστημα Εξόδων · AiWonderLab · Let's Go Bananas — ζωντανά δεδομένα από Viva (PLAYGROUND LADS I.K.E.). Οι εταιρικές χρεώσεις της κεντρικής κάρτας δεν εμφανίζονται εδώ.</footer>
 </div>
 
 <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
@@ -241,8 +241,10 @@ function renderKPIs(){
   const pendAmt=pend.reduce((s,c)=>s+c.amount,0);
   const ppl=new Set(pend.map(c=>c.personId)).size;
   const pct=Math.round(done.length/CHARGES.length*100);
+  const MN=["Ιανουαρίου","Φεβρουαρίου","Μαρτίου","Απριλίου","Μαΐου","Ιουνίου","Ιουλίου","Αυγούστου","Σεπτεμβρίου","Οκτωβρίου","Νοεμβρίου","Δεκεμβρίου"];
+  const curMonth=MN[new Date().getMonth()];
   document.getElementById("kpis").innerHTML=`
-    <div class="kpi"><div class="label">Σύνολο εξόδων Ιουνίου</div><div class="value">${fmt(total)}</div><div class="hint">${CHARGES.length} χρεώσεις σε ${PEOPLE.length} κάρτες</div></div>
+    <div class="kpi"><div class="label">Σύνολο εξόδων ${curMonth}</div><div class="value">${fmt(total)}</div><div class="hint">${CHARGES.length} χρεώσεις σε ${PEOPLE.length} κάρτες</div></div>
     <div class="kpi ${pct>=95?'good':pct>=75?'warn':'bad'}"><div class="label">Πλήρεις χρεώσεις</div><div class="value">${pct}%</div><div class="hint">στόχος ≥ 95%</div></div>
     <div class="kpi ${pendAmt>0?'bad':'good'}"><div class="label">Σε εκκρεμότητα</div><div class="value">${fmt(pendAmt)}</div><div class="hint">${pend.length} χρεώσεις με ελλείψεις</div></div>
     <div class="kpi ${ppl>0?'warn':'good'}"><div class="label">Άτομα με ελλείψεις</div><div class="value">${ppl}</div><div class="hint">από ${PEOPLE.length} με ενεργή κάρτα</div></div>`;
