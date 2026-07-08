@@ -450,8 +450,21 @@ function chargeCard(c){
     ${!c.receipt&&!c.approvedLoss?`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();approveLoss(${c.id})" title="Όταν πραγματικά δεν υπάρχει απόδειξη">Εγκεκριμένη απώλεια</button>`:""}
   </div>`;
 }
-function fixProject(id,val){if(!val)return;const c=CHARGES.find(x=>x.id===id);c.project=val;c.internal=val===INTERNAL;toast("Ορίστηκε project: "+val);closeDrawer();render()}
-function approveLoss(id){const c=CHARGES.find(x=>x.id===id);c.approvedLoss=true;toast("Μαρκαρίστηκε ως εγκεκριμένη απώλεια (με σημείωση CFO)");closeDrawer();render()}
+// Αποθήκευση στη βάση (μόνιμα). Ενημερώνει πρώτα την οθόνη (γρήγορο), μετά γράφει στη βάση.
+async function persistCharge(c,patch,okMsg){
+  Object.assign(c,patch.local||{});closeDrawer();render();
+  if(c.dbId==null){toast(okMsg+" (τοπικά — demo)");return;}
+  try{
+    const r=await fetch("/api/classify",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:c.dbId,...patch.api})});
+    if(!r.ok)throw 0;
+    toast("✅ "+okMsg+" — αποθηκεύτηκε");
+  }catch(e){toast("⚠️ Δεν αποθηκεύτηκε στη βάση — δοκίμασε ξανά");reloadState(false);}
+}
+function fixProject(id,val){if(!val)return;const c=CHARGES.find(x=>x.id===id);
+  persistCharge(c,{local:{project:val,internal:val===INTERNAL},api:{project:val}},"Project: "+val);}
+function approveLoss(id){const c=CHARGES.find(x=>x.id===id);
+  persistCharge(c,{local:{approvedLoss:true},api:{approvedLoss:true}},"Εγκεκριμένη απώλεια");}
 
 
 /* ---------------- ΕΡΓΑΛΕΙΑ ΛΟΓΙΣΤΡΙΑΣ / ΑΝΑΓΝΩΣΗΣ ---------------- */
@@ -545,7 +558,7 @@ async function reloadState(manual){
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
         const dt=new Date(c.occurred_at);
-        CHARGES.push({id:++idx,personId:p.id,day:dt.getDate(),when:c.occurred_at,
+        CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:dt.getDate(),when:c.occurred_at,
           dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
           hm:String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0"),
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
