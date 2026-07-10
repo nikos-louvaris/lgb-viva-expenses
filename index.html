@@ -108,7 +108,7 @@
     <span class="demo-badge">DEMO · δοκιμαστικές χρεώσεις — πραγματικά ονόματα/κάρτες από Viva</span>
     <button id="refreshBtn" class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="reloadState(true)">↻ Ανανέωση</button>
     <span id="lastUpd" class="mini" style="align-self:center"></span>
-    <div class="month-picker" style="margin-left:10px"><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">‹</button><span>Ιούνιος 2026</span><button onclick="toast('Στο demo βλέπεις τον Ιούνιο 2026')">›</button></div>
+    <div class="month-picker" style="margin-left:10px"><button onclick="changeMonth(-1)">‹</button><span>—</span><button onclick="changeMonth(1)">›</button></div>
   </header>
 
   <div class="recon ok" id="recon"></div>
@@ -153,6 +153,14 @@ const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SAR
 // μικρό υποσύνολο μόνο για την παραγωγή δοκιμαστικών χρεώσεων
 const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME"];
 const INTERNAL="LGB HOME";
+// ---- Κατάσταση επιλεγμένου μήνα (κάθε μήνας ξεχωριστά — καμία μεταφορά υπολοίπου) ----
+let ALL_CHARGES=[];                                   // όλες οι χρεώσεις από τη βάση
+let SELECTED_MONTH=new Date().toISOString().slice(0,7); // "YYYY-MM" — τρέχων μήνας
+const MONTHS_GR=["Ιανουάριος","Φεβρουάριος","Μάρτιος","Απρίλιος","Μάιος","Ιούνιος","Ιούλιος","Αύγουστος","Σεπτέμβριος","Οκτώβριος","Νοέμβριος","Δεκέμβριος"];
+function monthOf(c){return c.when?String(c.when).slice(0,7):SELECTED_MONTH;}
+function updateMonthLabel(){const [y,m]=SELECTED_MONTH.split("-");const sp=document.querySelector(".month-picker span");if(sp)sp.textContent=MONTHS_GR[+m-1]+" "+y;}
+function applyMonth(){CHARGES.length=0;ALL_CHARGES.filter(c=>monthOf(c)===SELECTED_MONTH).forEach(c=>CHARGES.push(c));updateMonthLabel();render();}
+function changeMonth(delta){const [y,m]=SELECTED_MONTH.split("-").map(Number);const d=new Date(y,m-1+delta,1);SELECTED_MONTH=String(d.getFullYear())+"-"+String(d.getMonth()+1).padStart(2,"0");applyMonth();}
 const MERCHANTS=[["Wolt",8,28],["FreeNow",5,19],["Shell",30,70],["ΑΒ Βασιλόπουλος",12,55],["Uber",6,22],["Πλαίσιο",15,120],["Κωτσόβολος",25,190],["Attica Parking",4,12],["Coffee Lab",3,9],["e-Table Εστιατόριο",35,110],["Beat",5,18],["ΟΑΣΑ",1.2,1.2],["Skroutz",10,80],["IKEA",20,150]];
 
 // Ντετερμινιστική "τυχαιότητα" ώστε το demo να είναι ίδιο κάθε φορά
@@ -240,9 +248,9 @@ function renderKPIs(){
   const pend=CHARGES.filter(missing);
   const pendAmt=pend.reduce((s,c)=>s+c.amount,0);
   const ppl=new Set(pend.map(c=>c.personId)).size;
-  const pct=Math.round(done.length/CHARGES.length*100);
+  const pct=CHARGES.length?Math.round(done.length/CHARGES.length*100):100;
   const MN=["Ιανουαρίου","Φεβρουαρίου","Μαρτίου","Απριλίου","Μαΐου","Ιουνίου","Ιουλίου","Αυγούστου","Σεπτεμβρίου","Οκτωβρίου","Νοεμβρίου","Δεκεμβρίου"];
-  const curMonth=MN[new Date().getMonth()];
+  const curMonth=MN[(+SELECTED_MONTH.split("-")[1])-1];
   document.getElementById("kpis").innerHTML=`
     <div class="kpi"><div class="label">Σύνολο εξόδων ${curMonth}</div><div class="value">${fmt(total)}</div><div class="hint">${CHARGES.length} χρεώσεις σε ${PEOPLE.length} κάρτες</div></div>
     <div class="kpi ${pct>=95?'good':pct>=75?'warn':'bad'}"><div class="label">Πλήρεις χρεώσεις</div><div class="value">${pct}%</div><div class="hint">στόχος ≥ 95%</div></div>
@@ -552,32 +560,31 @@ async function reloadState(manual){
     // Κρατάμε ΜΟΝΟ χρεώσεις που ανήκουν σε κάρτα-μέλους (υπάρχει άτομο να ανεβάσει απόδειξη).
     // Χρεώσεις της κεντρικής/εταιρικής κάρτας (Primary) ΔΕΝ κυνηγιούνται — δεν ανήκουν σε άτομο.
     if(Array.isArray(d.charges)){
-      CHARGES.length=0;
+      ALL_CHARGES.length=0;
       let idx=0;
       d.charges.forEach((c)=>{
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
         const dt=new Date(c.occurred_at);
-        CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:dt.getDate(),when:c.occurred_at,
+        ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:dt.getDate(),when:c.occurred_at,
           dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
           hm:String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0"),
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
           project:c.project||null,comment:c.comment||"",
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
-      const badge=document.querySelector(".demo-badge");
+    }
+    applyMonth(); // φιλτράρει στον επιλεγμένο μήνα, ενημερώνει label + render (χωρίς μεταφορά υπολοίπου)
+    const badge=document.querySelector(".demo-badge");
+    if(badge){
       if(CHARGES.length){
         badge.textContent="LIVE · πραγματικές χρεώσεις από Viva";
         badge.style.cssText="margin-left:auto;background:#e6f6ec;border:1px solid #86d3a2;color:#0f766e;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
       }else{
-        badge.textContent="LIVE · καμία χρέωση ακόμα αυτόν τον μήνα — καθαρή εικόνα";
+        badge.textContent="LIVE · καμία χρέωση αυτόν τον μήνα — καθαρή εικόνα";
         badge.style.cssText="margin-left:auto;background:#e8f0fe;border:1px solid #a9c7fb;color:#1a56db;font-weight:600;font-size:12px;padding:6px 12px;border-radius:99px";
       }
     }
-    // ενημέρωσε τον μήνα στον τρέχοντα
-    const mp=document.querySelector(".month-picker span");
-    if(mp){const mn=["Ιανουάριος","Φεβρουάριος","Μάρτιος","Απρίλιος","Μάιος","Ιούνιος","Ιούλιος","Αύγουστος","Σεπτέμβριος","Οκτώβριος","Νοέμβριος","Δεκέμβριος"];const now=new Date();mp.textContent=mn[now.getMonth()]+" "+now.getFullYear();}
-    render();
     const lu=document.getElementById("lastUpd");
     if(lu) lu.textContent="ενημερώθηκε "+new Date().toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
     if(manual&&btn){btn.disabled=false;btn.textContent="↻ Ανανέωση";}
