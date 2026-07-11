@@ -107,6 +107,7 @@
     </div>
     <span class="demo-badge">DEMO · δοκιμαστικές χρεώσεις — πραγματικά ονόματα/κάρτες από Viva</span>
     <button id="refreshBtn" class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="reloadState(true)">↻ Ανανέωση</button>
+    <button class="btn btn-ghost btn-sm" onclick="openSettings()" title="Καταστήματα χωρίς απόδειξη (π.χ. διόδια)">⚙ Εξαιρέσεις</button>
     <span id="lastUpd" class="mini" style="align-self:center"></span>
     <div class="month-picker" style="margin-left:10px"><button onclick="changeMonth(-1)">‹</button><span>—</span><button onclick="changeMonth(1)">›</button></div>
   </header>
@@ -156,8 +157,32 @@ const INTERNAL="LGB HOME";
 // ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
 // π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
 // όποια κάρτα/υπάλληλος κι αν το χρεώσει. Επεκτείνεται ελεύθερα.
-const NO_RECEIPT_MERCHANTS=["ATTIKI ODOS","ΑΤΤΙΚΗ ΟΔΟΣ","ATTIKIODOS","AODOS","ATTIKA TOLLS"];
-function receiptExempt(c){const m=(c.merchant||"").toUpperCase();return NO_RECEIPT_MERCHANTS.some(x=>m.includes(x.toUpperCase()));}
+const NO_RECEIPT_MERCHANTS=["ATTIKI ODOS","ΑΤΤΙΚΗ ΟΔΟΣ","ATTIKIODOS","AODOS","ATTIKA TOLLS"]; // ενσωματωμένα (πάντα ενεργά)
+let EXEMPT_DB=[]; // επιπλέον εξαιρέσεις από τη βάση — επεξεργάσιμες live από το πάνελ «⚙ Εξαιρέσεις»
+function allExempt(){return NO_RECEIPT_MERCHANTS.concat(EXEMPT_DB);}
+function receiptExempt(c){const m=(c.merchant||"").toUpperCase();return allExempt().some(x=>m.includes(String(x).toUpperCase()));}
+async function loadExemptions(){try{const r=await fetch("/api/settings",{cache:"no-store"});if(r.ok){const d=await r.json();EXEMPT_DB=Array.isArray(d.merchants)?d.merchants:[];}}catch(e){}}
+async function addExemption(p){p=(p||"").trim();if(!p)return;const P=p.toUpperCase();if(!EXEMPT_DB.some(x=>String(x).toUpperCase()===P))EXEMPT_DB.push(P);applyMonth();
+  try{await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",pattern:p})});toast("✅ Εξαιρέθηκε: "+P);}catch(e){toast("⚠️ Δεν αποθηκεύτηκε");}openSettings();}
+async function removeExemption(p){const P=String(p).toUpperCase();EXEMPT_DB=EXEMPT_DB.filter(x=>String(x).toUpperCase()!==P);applyMonth();
+  try{await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"remove",pattern:p})});toast("Αφαιρέθηκε: "+P);}catch(e){}openSettings();}
+function openSettings(){
+  const rows=allExempt().map(x=>{
+    const isDef=NO_RECEIPT_MERCHANTS.some(d=>d.toUpperCase()===String(x).toUpperCase());
+    return `<div class="charge"><div class="meta"><b>${x}</b> ${isDef?'<span class="mini">· ενσωματωμένο</span>':''}</div><div>${isDef?'<span class="mini">πάντα ενεργό</span>':`<button class="btn btn-sm btn-ghost" onclick="removeExemption('${String(x).replace(/'/g,"\\'")}')">✕ Αφαίρεση</button>`}</div></div>`;
+  }).join("");
+  openDrawer(`<div class="drawer-head"><h2>⚙ Εξαιρέσεις — χωρίς απόδειξη</h2><button class="drawer-close" onclick="closeDrawer()">✕</button></div>
+    <div class="drawer-body">
+      <div class="note">Καταστήματα που ΔΕΝ εκδίδουν απόδειξη (π.χ. αυτόματα διόδια). Ό,τι μπει εδώ δεν κυνηγιέται ποτέ για απόδειξη, σε καμία κάρτα. Ισχύει αμέσως.</div>
+      <div style="display:flex;gap:8px;margin:12px 0">
+        <input id="exInput" placeholder="π.χ. ATTIKI ODOS, KENTRIKH ODOS…" style="flex:1;padding:9px;border:1px solid var(--line);border-radius:8px"
+          onkeydown="if(event.key==='Enter')addExemption(this.value)">
+        <button class="btn btn-primary" onclick="addExemption(document.getElementById('exInput').value)">Προσθήκη</button>
+      </div>
+      <div class="section-title">Ενεργές εξαιρέσεις</div>
+      ${rows}
+    </div>`);
+}
 // ---- Κατάσταση επιλεγμένου μήνα (κάθε μήνας ξεχωριστά — καμία μεταφορά υπολοίπου) ----
 let ALL_CHARGES=[];                                   // όλες οι χρεώσεις από τη βάση
 let SELECTED_MONTH=new Date().toISOString().slice(0,7); // "YYYY-MM" — τρέχων μήνας
@@ -580,6 +605,7 @@ async function reloadState(manual){
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
     }
+    await loadExemptions(); // φέρε τις εξαιρέσεις (διόδια κ.λπ.) από τη βάση — ισχύουν αμέσως
     applyMonth(); // φιλτράρει στον επιλεγμένο μήνα, ενημερώνει label + render (χωρίς μεταφορά υπολοίπου)
     const badge=document.querySelector(".demo-badge");
     if(badge){
