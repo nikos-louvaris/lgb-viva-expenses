@@ -153,6 +153,11 @@ const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SAR
 // μικρό υποσύνολο μόνο για την παραγωγή δοκιμαστικών χρεώσεων
 const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME"];
 const INTERNAL="LGB HOME";
+// ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
+// π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
+// όποια κάρτα/υπάλληλος κι αν το χρεώσει. Επεκτείνεται ελεύθερα.
+const NO_RECEIPT_MERCHANTS=["ATTIKI ODOS","ΑΤΤΙΚΗ ΟΔΟΣ","ATTIKIODOS","AODOS","ATTIKA TOLLS"];
+function receiptExempt(c){const m=(c.merchant||"").toUpperCase();return NO_RECEIPT_MERCHANTS.some(x=>m.includes(x.toUpperCase()));}
 // ---- Κατάσταση επιλεγμένου μήνα (κάθε μήνας ξεχωριστά — καμία μεταφορά υπολοίπου) ----
 let ALL_CHARGES=[];                                   // όλες οι χρεώσεις από τη βάση
 let SELECTED_MONTH=new Date().toISOString().slice(0,7); // "YYYY-MM" — τρέχων μήνας
@@ -196,14 +201,15 @@ PEOPLE.forEach(p=>{
 const fmt=n=>n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
 function status(c){
   if(c.approvedLoss) return "ok";
+  if(receiptExempt(c)) return c.project?"ok":"exempt"; // Αττική Οδός κ.λπ. — δεν απαιτείται απόδειξη
   if(c.receipt&&c.project) return "ok";
   if(!c.receipt&&!c.project) return "both";
   if(!c.receipt) return "noreceipt";
   return "noproject";
 }
-const S_LABEL={ok:["Πλήρης","b-ok"],noreceipt:["Χωρίς απόδειξη","b-bad"],noproject:["Χωρίς project","b-warn"],both:["Λείπουν όλα","b-bad"]};
+const S_LABEL={ok:["Πλήρης","b-ok"],noreceipt:["Χωρίς απόδειξη","b-bad"],noproject:["Χωρίς project","b-warn"],both:["Λείπουν όλα","b-bad"],exempt:["Χωρίς απόδειξη (εξαιρείται)","b-ok"]};
 function personCharges(pid){return CHARGES.filter(c=>c.personId===pid)}
-function missing(c){const s=status(c);return s!=="ok"}
+function missing(c){const s=status(c);return s!=="ok"&&s!=="exempt"}
 function person(pid){return PEOPLE.find(p=>p.id===pid)}
 
 
@@ -449,13 +455,13 @@ function chargeCard(c){
         ${c.comment?`· σχόλιο: «${c.comment}»${autoMatched?" <span title='Αναγνωρίστηκε αυτόματα'>✨→ "+c.project+"</span>":""}`:""}</div>
     </div>
     <div>
-      <span class="flag ${c.receipt?'b-ok':'b-bad'}">${c.receipt?"📎 απόδειξη":"χωρίς απόδειξη"}</span>
+      <span class="flag ${c.receipt?'b-ok':(receiptExempt(c)?'b-ok':'b-bad')}">${c.receipt?"📎 απόδειξη":(receiptExempt(c)?"🚗 διόδια — χωρίς απόδειξη":"χωρίς απόδειξη")}</span>
       <span class="flag ${c.project?'b-info':'b-warn'}">${c.project?c.project:"χωρίς project"}</span>
       <span class="badge ${cls}">${lbl}</span>
     </div>
     ${!c.project?`<select class="fix" onclick="event.stopPropagation()" onchange="fixProject(${c.id},this.value)">
       <option value="">Όρισε project…</option>${PROJECTS.map(x=>`<option>${x}</option>`).join("")}</select>`:""}
-    ${!c.receipt&&!c.approvedLoss?`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();approveLoss(${c.id})" title="Όταν πραγματικά δεν υπάρχει απόδειξη">Εγκεκριμένη απώλεια</button>`:""}
+    ${!c.receipt&&!c.approvedLoss&&!receiptExempt(c)?`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();approveLoss(${c.id})" title="Όταν πραγματικά δεν υπάρχει απόδειξη">Εγκεκριμένη απώλεια</button>`:""}
   </div>`;
 }
 // Αποθήκευση στη βάση (μόνιμα). Ενημερώνει πρώτα την οθόνη (γρήγορο), μετά γράφει στη βάση.
