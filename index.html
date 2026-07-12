@@ -355,7 +355,7 @@ function openProject(pr){
     </div>
     <div class="drawer-foot">
       <button class="btn btn-ghost" onclick="exportProjectExcel('${pr.replace(/'/g,"\\'")}')">📊 Excel</button>
-      <button class="btn btn-ghost" onclick="toast('Θα ενώσει όλες τις αποδείξεις/τιμολόγια του ${pr.replace(/'/g,"\\'")} σε ένα PDF με το σύνολο — ενεργό μόλις ανοίξει το Viva PDF API')">📄 Όλες οι αποδείξεις σε 1 PDF</button>
+      <button class="btn btn-ghost" onclick="printPackage('project','${pr.replace(/'/g,"\\'")}')">📄 Όλα σε PDF</button>
       <button class="btn btn-ghost" onclick="toast('Θα κατεβάσει όλες τις εικόνες σε ZIP — ενεργό μόλις ανοίξει το Viva PDF API')">🗂 ZIP εικόνων</button>
       <button class="btn btn-primary" ${ready?"":"disabled"} onclick="toast('${ready?"Το κλείσιμο μήνα θα ενεργοποιηθεί στην πλήρη έκδοση":""}')">🔒 Κλείσιμο μήνα</button>
       <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα καταχωρήσει τα έξοδα στο Elorus LGB → ΕΞΟΔΟΛΟΓΙΑ: ${pr.replace(/'/g,"\\'")} (πλήρης έκδοση)')">📗 Στείλε στο Elorus</button>
@@ -382,17 +382,29 @@ function viewPeople(){
   return html+`</tbody></table>`;
 }
 function openPerson(pid){
-  const p=person(pid); const list=personCharges(pid).sort((a,b)=>a.day-b.day);
+  const p=person(pid); const list=personCharges(pid).slice().sort((a,b)=>(a.when||"").localeCompare(b.when||"")||a.day-b.day);
   const miss=list.filter(missing);
-  openDrawer(`<div class="drawer-head"><h2>${p.name}</h2><span class="mini">Viva •••• ${p.card}</span>
+  const total=list.reduce((s,c)=>s+c.amount,0);
+  const withRec=list.filter(c=>c.receipt).length;
+  const monthLbl=(document.querySelector(".month-picker span")||{}).textContent||SELECTED_MONTH;
+  openDrawer(`<div class="drawer-head"><h2>${p.name}</h2><span class="mini">Viva •••• ${p.card} · ${monthLbl}</span>
       <button class="drawer-close" onclick="closeDrawer()">✕</button></div>
     <div class="drawer-body">
-      ${miss.length?`<div class="note">⚠️ ${miss.length} ελλείψεις συνολικού ποσού ${fmt(miss.reduce((s,c)=>s+c.amount,0))}. Το σύστημα στέλνει αυτόματα email 1 ώρα μετά τη χρέωση, συγκεντρωτικό στις 21:00, εβδομαδιαίο, και τελικό λογαριασμό στο κλείσιμο του μήνα.</div>`:'<div class="note" style="background:var(--ok-soft);border-color:#bfe8cd;color:var(--ok)">✅ Όλα πλήρη — καμία ειδοποίηση δεν χρειάζεται.</div>'}
+      ${miss.length?`<div class="note">⚠️ ${miss.length} ελλείψεις συνολικού ποσού ${fmt(miss.reduce((s,c)=>s+c.amount,0))}. Το σύστημα στέλνει αυτόματα email 30' μετά τη χρέωση, συγκεντρωτικό στις 19:00, εβδομαδιαίο, και τελικό λογαριασμό στο κλείσιμο του μήνα.</div>`:'<div class="note" style="background:var(--ok-soft);border-color:#bfe8cd;color:var(--ok)">✅ Όλα πλήρη — καμία ειδοποίηση δεν χρειάζεται.</div>'}
+      <div class="section-title">${list.length} χρεώσεις · ${fmt(total)}
+        <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="copyText('${total.toFixed(2)}','Σύνολο ${p.name.replace(/'/g,"\\'")} (${monthLbl}): ${fmt(total)} — αντιγράφηκε')">📋 Αντιγραφή συνόλου</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportPersonExcel(${pid})">📊 Excel</button>
+        <button class="btn btn-ghost btn-sm" onclick="printPackage('person',${pid})">📄 PDF / Εκτύπωση</button>
+      </div>
+      <div class="note" style="margin:10px 0">🧾 <b>Πακέτο λογίστριας — ${p.name}</b>: ${withRec}/${list.length} με απόδειξη · σύνολο ${fmt(total)} για ${monthLbl}. (Οι εικόνες αποδείξεων εμφανίζονται μόλις ανοίξει το Viva API.)</div>
+      ${receiptGallery(list)}
+      <div class="section-title" style="margin-top:20px">Αναλυτικά</div>
       ${list.map(chargeCard).join("")}
     </div>
     <div class="drawer-foot">
       ${miss.length?`<button class="btn btn-warn" onclick="previewMsg(${pid})">💬 Προεπισκόπηση email υπενθύμισης</button>`:""}
-      <button class="btn btn-ghost" onclick="toast('Η προσωπική σελίδα ανοίγει από το link του SMS (πλήρης έκδοση)')">👤 Προσωπική σελίδα μέλους</button>
+      <button class="btn btn-ghost" onclick="exportPersonExcel(${pid})">📊 Excel</button>
+      <button class="btn btn-ghost" onclick="printPackage('person',${pid})">📄 Όλα σε PDF</button>
     </div>`);
 }
 
@@ -524,21 +536,57 @@ function downloadCSV(rows,filename){
 }
 // Excel γραμμές για ένα project (ή για όλα αν pr=null)
 function chargesToRows(list){
-  const rows=[["Ημ/νία","Κατάστημα","Ποσό (€)","Άτομο","Κάρτα","Project","Απόδειξη","Κατάσταση","Σχόλιο"]];
+  const rows=[["Ημ/νία","Ώρα","Κατάστημα","Ποσό (€)","Άτομο","Κάρτα","Project","Απόδειξη","Κατάσταση","Σχόλιο"]];
   list.forEach(c=>{const p=person(c.personId);const s=status(c);const lbl=(S_LABEL[s]||["",""])[0];
-    rows.push([String(c.day).padStart(2,"0")+"/06",c.merchant,c.amount.toLocaleString("el-GR",{minimumFractionDigits:2}),
+    rows.push([c.dm||(String(c.day).padStart(2,"0")+"/06"),c.hm||"",c.merchant,c.amount.toLocaleString("el-GR",{minimumFractionDigits:2}),
       p?p.name:"—",p?("••••"+p.card):"",c.project||"",c.receipt?"ΝΑΙ":"ΟΧΙ",lbl,c.comment||""]);});
   const tot=list.reduce((s,c)=>s+c.amount,0);
-  rows.push(["","ΣΥΝΟΛΟ",tot.toLocaleString("el-GR",{minimumFractionDigits:2}),"","","","","",""]);
+  rows.push(["","","ΣΥΝΟΛΟ",tot.toLocaleString("el-GR",{minimumFractionDigits:2}),"","","","","",""]);
   return rows;
 }
 function exportProjectExcel(pr){
   const list=CHARGES.filter(c=>c.project===pr);
-  downloadCSV(chargesToRows(list),"LGB_"+pr.replace(/[^A-Za-z0-9]/g,"_")+"_Ioynios2026.csv");
+  downloadCSV(chargesToRows(list),"LGB_"+pr.replace(/[^A-Za-z0-9]/g,"_")+"_"+SELECTED_MONTH+".csv");
 }
 function exportPersonExcel(pid){
   const p=person(pid); const list=personCharges(pid);
-  downloadCSV(chargesToRows(list),"LGB_"+p.name.replace(/[^A-Za-zΑ-Ωα-ω0-9]/g,"_")+"_Ioynios2026.csv");
+  downloadCSV(chargesToRows(list),"LGB_"+p.name.replace(/[^A-Za-zΑ-Ωα-ω0-9]/g,"_")+"_"+SELECTED_MONTH+".csv");
+}
+// Εκτυπώσιμο πακέτο (Save as PDF) — όλη η πληροφορία ανά άτομο ή ανά project για τον μήνα.
+// Οι εικόνες αποδείξεων μπαίνουν αυτόματα μόλις ανοίξει το Viva PDF API· τώρα δείχνει όλα τα στοιχεία.
+function printPackage(kind,id){
+  const isP=kind==="person";
+  const list=(isP?personCharges(id):CHARGES.filter(c=>c.project===id)).slice().sort((a,b)=>(a.when||"").localeCompare(b.when||""));
+  const title=isP?person(id).name:id;
+  const monthLbl=(document.querySelector(".month-picker span")||{}).textContent||SELECTED_MONTH;
+  let running=0;
+  const rows=list.map(c=>{running+=c.amount;const p=person(c.personId);
+    return `<tr>
+      <td>${c.dm||""} ${c.hm||""}</td>
+      <td>${c.merchant}</td>
+      <td style="text-align:right">${fmt(c.amount)}</td>
+      <td>${isP?(c.project||"—"):(p?p.name:"—")}</td>
+      <td>${c.receipt?"✓":(receiptExempt(c)?"διόδια":"—")}</td>
+      <td style="text-align:right">${fmt(running)}</td></tr>`;}).join("");
+  const tot=list.reduce((s,c)=>s+c.amount,0);
+  const withRec=list.filter(c=>c.receipt).length;
+  const html=`<!doctype html><html lang="el"><head><meta charset="utf-8"><title>${title} — ${monthLbl}</title>
+    <style>body{font-family:Arial,sans-serif;color:#1a1a2e;padding:24px}h1{font-size:20px;margin:0}
+    .sub{color:#666;margin:4px 0 16px}table{border-collapse:collapse;width:100%;font-size:13px}
+    th,td{border-bottom:1px solid #e5e7eb;padding:7px 9px;text-align:left}th{background:#f5f6fa}
+    tfoot td{font-weight:800;border-top:2px solid #333}@media print{button{display:none}}</style></head>
+    <body>
+    <h1>${isP?"Καρτέλα ατόμου":"Πακέτο project"}: ${title}</h1>
+    <div class="sub">${monthLbl} · ${list.length} χρεώσεις · ${withRec}/${list.length} με απόδειξη · Let's Go Bananas (PLAYGROUND LADS)</div>
+    <button onclick="window.print()" style="margin-bottom:14px;padding:8px 16px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Εκτύπωση / Αποθήκευση PDF</button>
+    <table><thead><tr><th>Ημ/νία & ώρα</th><th>Κατάστημα</th><th style="text-align:right">Ποσό</th><th>${isP?"Project":"Άτομο"}</th><th>Απόδ.</th><th style="text-align:right">Τρέχον σύνολο</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="2">ΣΥΝΟΛΟ</td><td style="text-align:right">${fmt(tot)}</td><td colspan="3"></td></tr></tfoot></table>
+    <p style="color:#999;font-size:11px;margin-top:18px">Οι φωτογραφίες αποδείξεων θα ενσωματώνονται εδώ μόλις ενεργοποιηθεί το Viva API εικόνων.</p>
+    </body></html>`;
+  const w=window.open("","_blank");
+  if(!w){toast("Επίτρεψε τα pop-ups για να ανοίξει το PDF");return;}
+  w.document.write(html);w.document.close();
 }
 // «Πακέτο λογίστριας»: κάθε απόδειξη μία-μία, με ποσό + τρέχον σύνολο
 function receiptGallery(list){
@@ -553,7 +601,7 @@ function receiptGallery(list){
       ${thumb}
       <div style="padding:8px 10px">
         <div style="font-weight:800">${fmt(c.amount)}</div>
-        <div class="mini">${c.merchant} · ${String(c.day).padStart(2,"0")}/06</div>
+        <div class="mini">${c.merchant} · ${c.dm?c.dm+" "+c.hm:String(c.day).padStart(2,"0")+"/06"}</div>
         <div class="mini">${p?p.name:"—"} ${c.receipt?"":"· <b style='color:var(--bad)'>χωρίς απόδειξη</b>"}</div>
         <div class="mini">τρέχον σύνολο: ${fmt(running)}</div>
       </div></div>`;
