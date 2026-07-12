@@ -451,7 +451,7 @@ function viewOrphans(sub){
 
 /* ---------------- ΠΡΟΒΟΛΗ ΘΕΚΛΑΣ ---------------- */
 function viewThekla(sub){
-  sub=sub||"projects";
+  sub=sub||"people";
   let inner="";
   if(sub==="projects"){
     const rows=projectRows();
@@ -461,6 +461,16 @@ function viewThekla(sub){
       <td><button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει συνοπτικό PDF του ${r.project.replace(/'/g,"\\'")} (πλήρης έκδοση)')">PDF</button>
           <button class="btn btn-ghost btn-sm" onclick="toast('Θα κατεβάσει ZIP με όλες τις εικόνες αποδείξεων/τιμολογίων (πλήρης έκδοση)')">ZIP εικόνων</button>
           <button class="btn btn-ghost btn-sm" onclick="exportProjectExcel('${r.project.replace(/'/g,"\\'")}')">Excel</button></td></tr>`}).join("")}
+    </tbody></table>`;
+  } else if(sub==="people"){
+    // ΟΛΟΙ οι υπάλληλοι, όλος ο μήνας — όχι μόνο ελλείψεις
+    inner=`<table><thead><tr><th>Όνομα</th><th class="num">Χρεώσεις</th><th class="num">Σύνολο μήνα</th><th>Απόδειξη/project (πληρότητα)</th><th class="num">Σε εκκρεμότητα</th><th>Λήψεις</th></tr></thead><tbody>
+    ${PEOPLE.map(p=>{const l=personCharges(p.id);if(!l.length)return "";const miss=l.filter(missing);const rec=l.filter(c=>c.receipt).length;const tot=l.reduce((s,c)=>s+c.amount,0);const pend=miss.reduce((s,c)=>s+c.amount,0);const done=l.length-miss.length;const pct=Math.round(done/l.length*100);
+      return `<tr onclick="openPerson(${p.id})"><td class="name">${p.name} <span class="mini">•••• ${p.card}</span></td><td class="num">${l.length}</td><td class="num">${fmt(tot)}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%;background:${pct===100?'var(--ok)':pct>=60?'var(--warn)':'var(--bad)'}"></i></div><span class="mini">${done}/${l.length} ✓ · 📎 ${rec}/${l.length}</span></div></td>
+      <td class="num">${pend?fmt(pend):"—"}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();exportPersonExcel(${p.id})">Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();printPackage('person',${p.id})">PDF</button></td></tr>`}).join("")||'<tr><td colspan="6" class="empty">Καμία χρέωση αυτόν τον μήνα</td></tr>'}
     </tbody></table>`;
   } else {
     inner=`<table><thead><tr><th>Όνομα</th><th class="num">Ελλείψεις</th><th class="num">Ποσό σε εκκρεμότητα</th><th>Τελευταία ειδοποίηση</th><th></th></tr></thead><tbody>
@@ -472,8 +482,9 @@ function viewThekla(sub){
     </tbody></table>`;
   }
   return `<div style="padding:18px">
-    <div class="note">👩‍💼 Προβολή λογίστριας (Θέκλα): <b>πλήρης πρόσβαση</b> — βλέπει και διορθώνει τα πάντα όπως ο CFO (projects σε ορφανά, εγκεκριμένες απώλειες, χειροκίνητες καταχωρήσεις), στέλνει υπενθυμίσεις σε όποιον χρειάζεται, και κατεβάζει ελεύθερα αποδείξεις/τιμολόγια/PDF/ZIP/Excel ανά πάσα στιγμή. Μόνο η πολιτική ποινών και το οριστικό κλείσιμο μήνα μένουν σε Κώστα/Λούβαρη. Κλικ σε άτομο ανοίγει την πλήρη καρτέλα του με δυνατότητα διόρθωσης.</div>
+    <div class="note">👩‍💼 Προβολή λογίστριας (Θέκλα): <b>πλήρης πρόσβαση</b>. Βλέπει ΟΛΟΝ τον μήνα κάθε υπαλλήλου (τι χτύπησε, τι έχει/δεν έχει απόδειξη & project), διορθώνει τα πάντα όπως ο CFO, στέλνει υπενθυμίσεις, και κατεβάζει Excel/PDF ανά άτομο ή project. Μόνο η πολιτική ποινών και το οριστικό κλείσιμο μήνα μένουν σε Κώστα/Λούβαρη.</div>
     <div class="subtabs">
+      <button class="subtab ${sub==='people'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('people')">Ανά άτομο — όλος ο μήνας</button>
       <button class="subtab ${sub==='projects'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('projects')">Έξοδα ανά project</button>
       <button class="subtab ${sub==='pending'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('pending')">Εκκρεμότητες & υπενθυμίσεις</button>
     </div>
