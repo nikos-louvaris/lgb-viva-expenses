@@ -50,16 +50,17 @@ function sb() {
   return { url, key };
 }
 
-async function sbInsert(table, row) {
+async function sbInsert(table, row, onConflict) {
   const c = sb();
   if (!c) return { skipped: true };
-  const r = await fetch(`${c.url}/rest/v1/${table}`, {
+  const q = onConflict ? `?on_conflict=${onConflict}` : "";
+  const r = await fetch(`${c.url}/rest/v1/${table}${q}`, {
     method: "POST",
     headers: {
       apikey: c.key,
       Authorization: `Bearer ${c.key}`,
       "Content-Type": "application/json",
-      Prefer: "resolution=ignore-duplicates",
+      Prefer: "resolution=ignore-duplicates,return=minimal",
     },
     body: JSON.stringify(row),
   });

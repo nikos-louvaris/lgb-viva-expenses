@@ -66,7 +66,7 @@ module.exports = async (req, res) => {
     const uniq = batch.filter((r) => (seen.has(r.viva_tx_id) ? false : (seen.add(r.viva_tx_id), true)));
     // ΜΙΑ μαζική εγγραφή (ignore-duplicates) — γρήγορο, μέσα στο όριο χρόνου
     let ins = { skipped: true };
-    if (uniq.length) ins = await sbInsert("charges", uniq);
+    if (uniq.length) ins = await sbInsert("charges", uniq, "viva_tx_id");
     return res.status(200).json({ ok: true, month: ym, scanned: uniq.length, saved: ins.ok !== false, status: ins.status || null, at: new Date().toISOString() });
   } catch (err) {
     return res.status(200).json({ ok: false, error: String(err.message || err) });

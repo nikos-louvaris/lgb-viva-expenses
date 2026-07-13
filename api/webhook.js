@@ -34,7 +34,7 @@ module.exports = async (req, res) => {
       status: isAuth ? "PENDING_CLEAR" : "MISSING_ALL", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
       raw: e,
     };
-    const r = await sbInsert("charges", charge);
+    const r = await sbInsert("charges", charge, "viva_tx_id");
     console.log("charge stored", charge.viva_tx_id, r);
     return res.status(200).json({ ok: true });
   } catch (err) {
