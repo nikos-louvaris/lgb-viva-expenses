@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Οι χρεώσεις μου — Let's Go Bananas</title>
+<style>
+  :root{--brand:#4f46e5;--ok:#0f9d58;--bad:#d93025;--warn:#e8850c;--line:#e6e8f0;--ink:#1a1a2e;--soft:#f6f7fb}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--soft);color:var(--ink)}
+  header{background:linear-gradient(135deg,#4f46e5,#9333ea);color:#fff;padding:20px 16px 22px}
+  header h1{margin:0;font-size:19px}
+  header .sub{opacity:.9;font-size:13px;margin-top:3px}
+  .wrap{max-width:640px;margin:0 auto;padding:14px}
+  .sum{display:flex;gap:10px;margin:-14px 14px 6px;position:relative}
+  .sum .box{flex:1;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+  .sum .n{font-size:19px;font-weight:800}
+  .sum .l{font-size:11px;color:#78809a}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px;margin:12px 0;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+  .row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .amt{font-size:20px;font-weight:800}
+  .mer{font-size:14px;font-weight:600}
+  .when{font-size:12px;color:#78809a;margin-top:2px}
+  .pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap}
+  .p-ok{background:#e6f6ec;color:var(--ok)}
+  .p-bad{background:#fde8e6;color:var(--bad)}
+  .p-warn{background:#fff2df;color:var(--warn)}
+  .p-pend{background:#eef;color:#556}
+  label.up{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:11px;border:1.5px dashed #b9c0d8;border-radius:11px;padding:13px;font-weight:700;color:var(--brand);cursor:pointer}
+  label.up.done{border-style:solid;border-color:#9be0b3;color:var(--ok);background:#f2fbf5}
+  input[type=file]{display:none}
+  select{width:100%;margin-top:9px;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:#fff}
+  .thumb{margin-top:10px;width:100%;max-height:190px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
+  .empty{text-align:center;color:#78809a;padding:40px 12px}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
+  .toast.show{opacity:1}
+  .note{background:#fffbe9;border:1px solid #f2dd8f;border-radius:11px;padding:10px 12px;font-size:12.5px;color:#7a5c00;margin:12px 0}
+  .busy{opacity:.5;pointer-events:none}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="hello">Οι χρεώσεις μου</h1>
+  <div class="sub" id="sub">Φόρτωση…</div>
+</header>
+<div class="sum" id="sum" style="display:none">
+  <div class="box"><div class="n" id="s-total">—</div><div class="l">σύνολο μήνα</div></div>
+  <div class="box"><div class="n" id="s-done">—</div><div class="l">τακτοποιημένες</div></div>
+  <div class="box"><div class="n" id="s-left">—</div><div class="l">εκκρεμούν</div></div>
+</div>
+<div class="wrap">
+  <div class="note">📷 Για κάθε χρέωση, ανέβασε <b>φωτογραφία της απόδειξης</b> (καθαρή, ολόκληρη, να φαίνεται το ποσό) και διάλεξε <b>project</b>. Ό,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο.</div>
+  <div id="list"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const PROJECTS=["ATTRATIVO","BWIN","CAPRICE-SARANTIS","CLINEA-SARANTIS","SARANTIS-BECKMANN","TEZA-SARANTIS","SEPHORA","CROCS","INTERSPORT","SANITAS","STR8","TSAKIRIS","VODAFONE","THE ELLINIKON","SNAPPI","ALGIDA","WOWCHI","Α Β ΒΑΣΙΛΟΠΟΥΛΟΣ","ΜΕΤΑΙΧΜΙΟ","2ΓΕΜΙΣΤΑ ΠΑΠΑΔΟΠΟΥΛΟΥ","SNF NIARXOS","Shell","JOWAE","LGB HOME","OTHER"];
+const MN=["Ιανουαρίου","Φεβρουαρίου","Μαρτίου","Απριλίου","Μαΐου","Ιουνίου","Ιουλίου","Αυγούστου","Σεπτεμβρίου","Οκτωβρίου","Νοεμβρίου","Δεκεμβρίου"];
+const qs=new URLSearchParams(location.search);
+const W=qs.get("w"), T=qs.get("t");
+const fmt=n=>n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
+let tt;function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2600);}
+function fdate(iso){const d=new Date(iso);return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
+
+async function load(){
+  if(!W||!T){document.getElementById("sub").textContent="Άκυρο link.";return;}
+  let d;
+  try{ const r=await fetch(`/api/my?w=${encodeURIComponent(W)}&t=${encodeURIComponent(T)}`); d=await r.json(); if(!r.ok) throw new Error(d.error||"error"); }
+  catch(e){ document.getElementById("sub").textContent="Το link δεν είναι έγκυρο. Ζήτησε νέο."; return; }
+  const [y,mo]=d.month.split("-");
+  document.getElementById("hello").textContent="Γεια σου "+(d.name.split(" ")[0]||d.name)+"!";
+  document.getElementById("sub").textContent="Κάρτα •••• "+d.card+" · "+MN[+mo-1]+" "+y;
+  const ch=d.charges||[];
+  const total=ch.reduce((s,c)=>s+c.amount,0);
+  const done=ch.filter(c=>c.has_receipt&&c.project).length;
+  const left=ch.length-done;
+  document.getElementById("sum").style.display="flex";
+  document.getElementById("s-total").textContent=fmt(total);
+  document.getElementById("s-done").textContent=done+"/"+ch.length;
+  document.getElementById("s-left").textContent=left;
+  const list=document.getElementById("list");
+  if(!ch.length){list.innerHTML='<div class="empty">Δεν υπάρχουν χρεώσεις αυτόν τον μήνα 🎉</div>';return;}
+  list.innerHTML=ch.map(cardHtml).join("");
+}
+function pill(c){
+  if(c.has_receipt&&c.project) return '<span class="pill p-ok">✓ ΟΚ</span>';
+  if(c.pending) return '<span class="pill p-pend">⏳ εκκρεμεί</span>';
+  if(!c.has_receipt&&!c.project) return '<span class="pill p-bad">λείπουν όλα</span>';
+  if(!c.has_receipt) return '<span class="pill p-bad">λείπει απόδειξη</span>';
+  return '<span class="pill p-warn">λείπει project</span>';
+}
+function cardHtml(c){
+  const opts='<option value="">Διάλεξε project…</option>'+PROJECTS.map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("");
+  return `<div class="card" id="c-${c.id}">
+    <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
+    ${c.receipt_url?`<img class="thumb" src="${c.receipt_url}">`:""}
+    <label class="up ${c.has_receipt?"done":""}" for="f-${c.id}">${c.has_receipt?"✓ Απόδειξη ανέβηκε — άλλαξέ τη":"📷 Ανέβασε φωτογραφία απόδειξης"}</label>
+    <input type="file" id="f-${c.id}" accept="image/*" capture="environment" onchange="upload(${c.id},this)">
+    <select onchange="setProject(${c.id},this.value)">${opts}</select>
+  </div>`;
+}
+// Σμίκρυνση εικόνας πριν το ανέβασμα (μικρό μέγεθος, γρήγορο)
+function resize(file){return new Promise(res=>{
+  const img=new Image();const rd=new FileReader();
+  rd.onload=()=>{img.onload=()=>{
+    const max=1400;let{width:w,height:h}=img;
+    if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}
+    const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+    cv.getContext("2d").drawImage(img,0,0,w,h);
+    res(cv.toDataURL("image/jpeg",0.82));
+  };img.src=rd.result;};
+  rd.readAsDataURL(file);
+});}
+async function upload(id,input){
+  const f=input.files&&input.files[0];if(!f)return;
+  const card=document.getElementById("c-"+id);card.classList.add("busy");toast("Ανεβαίνει…");
+  try{
+    const dataUrl=await resize(f);
+    const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
+    toast("✅ Η απόδειξη αποθηκεύτηκε!");await load();
+  }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
+}
+async function setProject(id,val){
+  if(!val)return;const card=document.getElementById("c-"+id);card.classList.add("busy");
+  try{
+    const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({w:W,t:T,chargeId:id,project:val})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
+    toast("✅ Project: "+val);await load();
+  }catch(e){toast("⚠️ Δεν αποθηκεύτηκε");card.classList.remove("busy");}
+}
+load();
+</script>
+</body>
+</html>
