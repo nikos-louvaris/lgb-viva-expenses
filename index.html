@@ -157,7 +157,7 @@ const INTERNAL="LGB HOME";
 // ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
 // π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
 // όποια κάρτα/υπάλληλος κι αν το χρεώσει. Επεκτείνεται ελεύθερα.
-const NO_RECEIPT_MERCHANTS=["ATTIKI ODOS","ΑΤΤΙΚΗ ΟΔΟΣ","ATTIKIODOS","AODOS","ATTIKA TOLLS"]; // ενσωματωμένα (πάντα ενεργά)
+const NO_RECEIPT_MERCHANTS=[]; // καμία ενσωματωμένη εξαίρεση — ΚΑΘΕ χρέωση μέσω Viva απαιτεί απόδειξη. (Τα διόδια Αττ.Οδού φορτίζονται από άλλο ταμείο, δεν περνούν από Viva.)
 let EXEMPT_DB=[]; // επιπλέον εξαιρέσεις από τη βάση — επεξεργάσιμες live από το πάνελ «⚙ Εξαιρέσεις»
 function allExempt(){return NO_RECEIPT_MERCHANTS.concat(EXEMPT_DB);}
 function receiptExempt(c){const m=(c.merchant||"").toUpperCase();return allExempt().some(x=>m.includes(String(x).toUpperCase()));}
