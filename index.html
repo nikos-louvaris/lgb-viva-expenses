@@ -501,7 +501,7 @@ function chargeCard(c){
   return `<div class="charge">
     <div class="amt">${fmt(c.amount)}</div>
     <div class="meta">
-      <div class="merchant">${c.merchant} <span class="mini">· ${c.dm?c.dm+" "+c.hm:String(c.day).padStart(2,"0")+"/06"}</span></div>
+      <div class="merchant">${c.merchant} <span class="mini">· ${c.dm?c.dm+" "+c.hm:String(c.day).padStart(2,"0")+"/06"}</span>${c.pending?' <span class="badge b-warn" title="Δέσμευση — δεν έχει εκκαθαριστεί ακόμα στη Viva">⏳ εκκρεμεί εκκαθάριση</span>':''}</div>
       <div class="mini">${p.name} · •••• ${p.card}
         ${c.comment?`· σχόλιο: «${c.comment}»${autoMatched?" <span title='Αναγνωρίστηκε αυτόματα'>✨→ "+c.project+"</span>":""}`:""}</div>
     </div>
@@ -663,9 +663,17 @@ async function reloadState(manual){
           dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
           hm:String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0"),
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
-          project:c.project||null,comment:c.comment||"",
+          project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
+          pending:c.status==="PENDING_CLEAR", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
+      // DEDUP: αν μια δέσμευση (⏳) έχει ήδη εκκαθαριστεί (ίδιο wallet+ποσό, οριστική χρέωση),
+      // κρύψε τη δέσμευση ώστε να μη μετριέται διπλά. Η οριστική υπερισχύει.
+      const settledKeys=new Set(ALL_CHARGES.filter(c=>!c.pending).map(c=>c.walletId+"|"+c.amount.toFixed(2)));
+      for(let i=ALL_CHARGES.length-1;i>=0;i--){
+        const c=ALL_CHARGES[i];
+        if(c.pending && settledKeys.has(c.walletId+"|"+c.amount.toFixed(2))) ALL_CHARGES.splice(i,1);
+      }
     }
     await loadExemptions(); // φέρε τις εξαιρέσεις (διόδια κ.λπ.) από τη βάση — ισχύουν αμέσως
     applyMonth(); // φιλτράρει στον επιλεγμένο μήνα, ενημερώνει label + render (χωρίς μεταφορά υπολοίπου)
