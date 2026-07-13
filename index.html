@@ -107,6 +107,7 @@
     </div>
     <span class="demo-badge">DEMO · δοκιμαστικές χρεώσεις — πραγματικά ονόματα/κάρτες από Viva</span>
     <button id="refreshBtn" class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="reloadState(true)">↻ Ανανέωση</button>
+    <button class="btn btn-ghost btn-sm" onclick="openProjects()" title="Πρόσθεσε νέο project / πελάτη">➕ Projects</button>
     <button class="btn btn-ghost btn-sm" onclick="openSettings()" title="Καταστήματα χωρίς απόδειξη (π.χ. διόδια)">⚙ Εξαιρέσεις</button>
     <span id="lastUpd" class="mini" style="align-self:center"></span>
     <div class="month-picker" style="margin-left:10px"><button onclick="changeMonth(-1)">‹</button><span>—</span><button onclick="changeMonth(1)">›</button></div>
@@ -158,7 +159,7 @@ const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SAR
 const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME"];
 const INTERNAL="LGB HOME";
 // Σωστά ελληνικά ονόματα ανά κάρτα (ίδια με το my.js)
-const NAMES={"448933314799":"Άγγελος Χρονόπουλος","324887741089":"Α. Κολυγλιάτης","566240519800":"Κώστας Κρυωνάς","282541651501":"Ιωάννα Σκούρα","657494082292":"Λουκία Μπαλτζή","910827445981":"Άντα Μπαϊρακτάρη","975269802823":"Κ. Παρασκευόπουλος","405838582045":"Ζωή Ηγουμένη","389933252655":"Μ. Θιβαίου","968554634120":"Μ. Σιταροπούλου","577335556525":"Αναστασία Κοβάνη","990263759336":"Δήμητρα Λάκη","243763678466":"Άγγελος Γκουτζέλας"};
+const NAMES={"448933314799":"Άγγελος Χρονόπουλος","324887741089":"Ανδρέας Κολυγλιάτης","566240519800":"Κώστας Κρυωνάς","282541651501":"Ιωάννα Σκούρα","657494082292":"Λουκία Μπαλτζή","910827445981":"Άντα Μπαϊρακτάρη","975269802823":"Αίας Παρασκευόπουλος","405838582045":"Ζωή Ηγουμενίδη","389933252655":"Μαριλού Θηβαίου","968554634120":"Μαριλένα Σιταροπούλου","577335556525":"Αναστασία Κοβάνη","990263759336":"Δήμητρα Λάκη","243763678466":"Ντόριαν Γκουτζέλας"};
 function niceName(walletId,friendly){if(NAMES[String(walletId)])return NAMES[String(walletId)];const m=String(friendly||"").match(/^(.*?)\s*\d{4}$/);return (m?m[1]:friendly||"").trim();}
 // ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
 // π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
@@ -186,6 +187,28 @@ function openSettings(){
         <button class="btn btn-primary" onclick="addExemption(document.getElementById('exInput').value)">Προσθήκη</button>
       </div>
       <div class="section-title">Ενεργές εξαιρέσεις</div>
+      ${rows}
+    </div>`);
+}
+// ---- Έξτρα projects (νέοι πελάτες) — DB-backed, ζωντανά σε όλα τα dropdowns ----
+let CUSTOM_PROJECTS=[];
+function allProjects(){const s=new Set(PROJECTS);const extra=CUSTOM_PROJECTS.filter(p=>!s.has(p));return PROJECTS.slice(0,-1).concat(extra,["OTHER"]);}
+async function loadProjects(){try{const r=await fetch("/api/projects",{cache:"no-store"});if(r.ok){const d=await r.json();CUSTOM_PROJECTS=Array.isArray(d.projects)?d.projects:[];}}catch(e){}}
+async function addProject(name){name=(name||"").trim().replace(/\s+/g," ").toUpperCase();if(!name)return;if(!CUSTOM_PROJECTS.includes(name)&&!PROJECTS.includes(name))CUSTOM_PROJECTS.push(name);render();
+  try{await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",name})});toast("✅ Νέο project: "+name);}catch(e){toast("⚠️ Δεν αποθηκεύτηκε");}openProjects();}
+async function removeProject(name){CUSTOM_PROJECTS=CUSTOM_PROJECTS.filter(p=>p!==name);render();
+  try{await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"remove",name})});toast("Αφαιρέθηκε: "+name);}catch(e){}openProjects();}
+function openProjects(){
+  const rows=CUSTOM_PROJECTS.length?CUSTOM_PROJECTS.map(p=>`<div class="charge"><div class="meta"><b>${p}</b> <span class="mini">· νέο (custom)</span></div><div><button class="btn btn-sm btn-ghost" onclick="removeProject('${String(p).replace(/'/g,"\\'")}')">✕ Αφαίρεση</button></div></div>`).join(""):'<div class="note">Δεν έχεις προσθέσει νέα projects ακόμα.</div>';
+  openDrawer(`<div class="drawer-head"><h2>➕ Projects (νέοι πελάτες)</h2><button class="drawer-close" onclick="closeDrawer()">✕</button></div>
+    <div class="drawer-body">
+      <div class="note">Γράψε ένα νέο project (π.χ. νέος πελάτης). Εμφανίζεται <b>αμέσως</b> στη λίστα όλων — στο κεντρικό και στις προσωπικές σελίδες των υπαλλήλων.</div>
+      <div style="display:flex;gap:8px;margin:12px 0">
+        <input id="prInput" placeholder="π.χ. NEA ETAIREIA A.E." style="flex:1;padding:9px;border:1px solid var(--line);border-radius:8px"
+          onkeydown="if(event.key==='Enter')addProject(this.value)">
+        <button class="btn btn-primary" onclick="addProject(document.getElementById('prInput').value)">Προσθήκη</button>
+      </div>
+      <div class="section-title">Έξτρα projects</div>
       ${rows}
     </div>`);
 }
@@ -514,7 +537,7 @@ function chargeCard(c){
       <span class="badge ${cls}">${lbl}</span>
     </div>
     ${!c.project?`<select class="fix" onclick="event.stopPropagation()" onchange="fixProject(${c.id},this.value)">
-      <option value="">Όρισε project…</option>${PROJECTS.map(x=>`<option>${x}</option>`).join("")}</select>`:""}
+      <option value="">Όρισε project…</option>${allProjects().map(x=>`<option>${x}</option>`).join("")}</select>`:""}
     ${!c.receipt&&!c.approvedLoss&&!receiptExempt(c)?`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();approveLoss(${c.id})" title="Όταν πραγματικά δεν υπάρχει απόδειξη">Εγκεκριμένη απώλεια</button>`:""}
   </div>`;
 }
@@ -679,6 +702,7 @@ async function reloadState(manual){
       }
     }
     await loadExemptions(); // φέρε τις εξαιρέσεις (διόδια κ.λπ.) από τη βάση — ισχύουν αμέσως
+    await loadProjects();   // φέρε τα έξτρα projects (νέοι πελάτες)
     applyMonth(); // φιλτράρει στον επιλεγμένο μήνα, ενημερώνει label + render (χωρίς μεταφορά υπολοίπου)
     const badge=document.querySelector(".demo-badge");
     if(badge){

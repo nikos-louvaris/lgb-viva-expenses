@@ -57,6 +57,8 @@
 <div class="toast" id="toast"></div>
 <script>
 const PROJECTS=["ATTRATIVO","BWIN","CAPRICE-SARANTIS","CLINEA-SARANTIS","SARANTIS-BECKMANN","TEZA-SARANTIS","SEPHORA","CROCS","INTERSPORT","SANITAS","STR8","TSAKIRIS","VODAFONE","THE ELLINIKON","SNAPPI","ALGIDA","WOWCHI","Α Β ΒΑΣΙΛΟΠΟΥΛΟΣ","ΜΕΤΑΙΧΜΙΟ","2ΓΕΜΙΣΤΑ ΠΑΠΑΔΟΠΟΥΛΟΥ","SNF NIARXOS","Shell","JOWAE","LGB HOME","OTHER"];
+let CUSTOM=[];
+const ALLP=()=>PROJECTS.slice(0,-1).concat(CUSTOM.filter(p=>!PROJECTS.includes(p)),["OTHER"]);
 const MN=["Ιανουαρίου","Φεβρουαρίου","Μαρτίου","Απριλίου","Μαΐου","Ιουνίου","Ιουλίου","Αυγούστου","Σεπτεμβρίου","Οκτωβρίου","Νοεμβρίου","Δεκεμβρίου"];
 const qs=new URLSearchParams(location.search);
 const W=qs.get("w"), T=qs.get("t");
@@ -69,6 +71,7 @@ async function load(){
   let d;
   try{ const r=await fetch(`/api/my?w=${encodeURIComponent(W)}&t=${encodeURIComponent(T)}`); d=await r.json(); if(!r.ok) throw new Error(d.error||"error"); }
   catch(e){ document.getElementById("sub").textContent="Το link δεν είναι έγκυρο. Ζήτησε νέο."; return; }
+  try{ const pr=await fetch("/api/projects"); if(pr.ok) CUSTOM=(await pr.json()).projects||[]; }catch(e){}
   const [y,mo]=d.month.split("-");
   document.getElementById("hello").textContent="👋 "+d.name;
   document.getElementById("sub").textContent="Κάρτα •••• "+d.card+" · "+MN[+mo-1]+" "+y+" — αν το όνομα δεν είναι σωστό, ενημέρωσέ μας";
@@ -92,7 +95,7 @@ function pill(c){
   return '<span class="pill p-warn">λείπει project</span>';
 }
 function cardHtml(c){
-  const opts='<option value="">Διάλεξε project…</option>'+PROJECTS.map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("");
+  const opts='<option value="">Διάλεξε project…</option>'+ALLP().map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("")+'<option value="__NEW__">➕ Άλλο (γράψε νέο)…</option>';
   return `<div class="card" id="c-${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
     ${c.has_receipt&&c.receipt_url?`<img class="thumb" src="${c.receipt_url}">`:""}
@@ -126,7 +129,14 @@ async function upload(id,input){
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
 }
 async function setProject(id,val){
-  if(!val)return;const card=document.getElementById("c-"+id);card.classList.add("busy");
+  if(!val)return;
+  if(val==="__NEW__"){
+    const name=(prompt("Γράψε το νέο project (π.χ. όνομα νέου πελάτη):")||"").trim().replace(/\s+/g," ");
+    if(!name){load();return;}
+    val=name.toUpperCase();
+    try{await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",name:val})});CUSTOM.push(val);}catch(e){}
+  }
+  const card=document.getElementById("c-"+id);card.classList.add("busy");
   try{
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({w:W,t:T,chargeId:id,project:val})});
