@@ -65,20 +65,19 @@ module.exports = async (req, res) => {
     const name = niceName(w, wallet.friendlyName);
     const card = m ? m[2] : "----";
 
-    const ym = new Date().toISOString().slice(0, 7);
-    const rows = await sbSelect("charges", `wallet_id=eq.${w}&order=occurred_at.desc&limit=500`);
-    const charges = (rows || [])
-      .filter((c) => String(c.occurred_at || "").slice(0, 7) === ym)
-      .map((c) => ({
-        id: c.id,
-        amount: Math.abs(+c.amount),
-        merchant: c.merchant || "—",
-        occurred_at: c.occurred_at,
-        has_receipt: !!c.has_receipt,
-        receipt_url: c.receipt_url || null,
-        project: c.project || null,
-        pending: c.status === "PENDING_CLEAR",
-      }));
+    const ym = new Date().toISOString().slice(0, 7); // τρέχων μήνας (προεπιλογή)
+    const rows = await sbSelect("charges", `wallet_id=eq.${w}&order=occurred_at.desc&limit=1000`);
+    // Επιστρέφουμε ΟΛΟΥΣ τους μήνες — η σελίδα κάνει πλοήγηση μπρος-πίσω και φιλτράρει.
+    const charges = (rows || []).map((c) => ({
+      id: c.id,
+      amount: Math.abs(+c.amount),
+      merchant: c.merchant || "—",
+      occurred_at: c.occurred_at,
+      has_receipt: !!c.has_receipt,
+      receipt_url: c.receipt_url || null,
+      project: c.project || null,
+      pending: c.status === "PENDING_CLEAR",
+    }));
 
     return res.status(200).json({ name, card, month: ym, charges });
   } catch (err) {
