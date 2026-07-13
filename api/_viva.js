@@ -94,4 +94,47 @@ async function sbUpdate(table, filter, patch) {
   return { ok: r.ok, status: r.status, row: body && body[0] };
 }
 
-module.exports = { vivaToken, wallets, webhookKey, sbInsert, sbSelect, sbUpdate };
+// --- Προσωπικό token ανά κάρτα (deterministic — δεν χρειάζεται πίνακας) ---
+// token = HMAC(service_key, "me:"+walletId) → 16 hex. Χωρίς service key δεν βγαίνει.
+const crypto = require("crypto");
+function personToken(walletId) {
+  const key = process.env.SUPABASE_SERVICE_KEY || "dev-secret";
+  return crypto.createHmac("sha256", key).update("me:" + String(walletId)).digest("hex").slice(0, 16);
+}
+function verifyToken(walletId, token) {
+  const good = personToken(walletId);
+  // σύγκριση σταθερού χρόνου
+  return token && token.length === good.length &&
+    crypto.timingSafeEqual(Buffer.from(token), Buffer.from(good));
+}
+
+// --- Supabase Storage: αποθήκευση φωτογραφίας απόδειξης ---
+async function sbEnsureBucket(bucket) {
+  const c = sb();
+  if (!c) return;
+  await fetch(`${c.url}/storage/v1/bucket`, {
+    method: "POST",
+    headers: { apikey: c.key, Authorization: `Bearer ${c.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: bucket, name: bucket, public: true }),
+  }).catch(() => {}); // αν υπάρχει ήδη, αγνόησε
+}
+async function sbUploadReceipt(path, bytes, contentType) {
+  const c = sb();
+  if (!c) return { skipped: true };
+  await sbEnsureBucket("receipts");
+  const r = await fetch(`${c.url}/storage/v1/object/receipts/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: c.key, Authorization: `Bearer ${c.key}`,
+      "Content-Type": contentType || "image/jpeg", "x-upsert": "true",
+    },
+    body: bytes,
+  });
+  if (!r.ok) return { ok: false, status: r.status, err: await r.text().catch(() => "") };
+  return { ok: true, url: `${c.url}/storage/v1/object/public/receipts/${path}` };
+}
+
+module.exports = {
+  vivaToken, wallets, webhookKey, sbInsert, sbSelect, sbUpdate,
+  personToken, verifyToken, sbUploadReceipt,
+};
