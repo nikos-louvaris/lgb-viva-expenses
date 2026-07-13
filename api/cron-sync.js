@@ -39,11 +39,10 @@ module.exports = async (req, res) => {
         .map((w) => String(w.walletId))
     );
     const token = await dsToken();
-    let rows = [];
-    for (let p = 1; p <= 2; p++) rows = rows.concat(await dsPage(token, p)); // νεότερες ~1000
+    const rows = await dsPage(token, 1); // νεότερες 500 (καλύπτουν ~2+ εβδομάδες)
 
     const ym = new Date().toISOString().slice(0, 7); // τρέχων μήνας YYYY-MM
-    let scanned = 0, upserts = 0;
+    const batch = [];
     for (const x of rows) {
       if (!members.has(String(x.walletId))) continue;
       if (String(x.created || "").slice(0, 7) !== ym) continue;
@@ -51,10 +50,8 @@ module.exports = async (req, res) => {
       const settle = (x.subTypeId === 100 || x.subTypeId === 104) && amt < 0;
       const auth = (x.isAuthorization || x.subTypeId === 101) && amt < 0;
       if (!settle && !auth) continue;
-      scanned++;
-      const id = auth ? "AUTH-" + x.accountTransactionId : String(x.accountTransactionId);
-      const r = await sbInsert("charges", {
-        viva_tx_id: id,
+      batch.push({
+        viva_tx_id: auth ? "AUTH-" + x.accountTransactionId : String(x.accountTransactionId),
         wallet_id: x.walletId,
         amount: Math.abs(amt),
         merchant: x.userDescription || x.counterPart || "",
@@ -63,9 +60,11 @@ module.exports = async (req, res) => {
         status: auth ? "PENDING_CLEAR" : "MISSING_ALL",
         raw: x,
       });
-      if (r && r.ok) upserts++;
     }
-    return res.status(200).json({ ok: true, month: ym, scanned, upserts, at: new Date().toISOString() });
+    // ΜΙΑ μαζική εγγραφή (ignore-duplicates) — γρήγορο, μέσα στο όριο χρόνου
+    let ins = { skipped: true };
+    if (batch.length) ins = await sbInsert("charges", batch);
+    return res.status(200).json({ ok: true, month: ym, scanned: batch.length, saved: ins.ok !== false, at: new Date().toISOString() });
   } catch (err) {
     return res.status(200).json({ ok: false, error: String(err.message || err) });
   }
