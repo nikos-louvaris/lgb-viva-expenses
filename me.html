@@ -95,7 +95,7 @@ function cardHtml(c){
   const opts='<option value="">Διάλεξε project…</option>'+PROJECTS.map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("");
   return `<div class="card" id="c-${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
-    ${c.receipt_url?`<img class="thumb" src="${c.receipt_url}">`:""}
+    ${c.has_receipt&&c.receipt_url?`<img class="thumb" src="${c.receipt_url}">`:""}
     <label class="up ${c.has_receipt?"done":""}" for="f-${c.id}" onclick="toast('📸 Καθαρή & ολόκληρη — να φαίνεται το τελικό ποσό, όχι θολή!')">${c.has_receipt?"✓ Απόδειξη ανέβηκε — άλλαξέ τη":"📷 Ανέβασε φωτογραφία απόδειξης"}</label>
     <div class="uphint">📸 καθαρή · ολόκληρη · ίσια · να φαίνεται το τελικό ποσό · όχι θολή/κομμένη</div>
     <input type="file" id="f-${c.id}" accept="image/*" capture="environment" onchange="upload(${c.id},this)">

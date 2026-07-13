@@ -583,7 +583,7 @@ function printPackage(kind,id){
       <td>${c.merchant}</td>
       <td style="text-align:right">${fmt(c.amount)}</td>
       <td>${isP?(c.project||"—"):(p?p.name:"—")}</td>
-      <td>${c.receiptUrl?'<img src="'+c.receiptUrl+'" style="height:46px;border-radius:4px">':(c.receipt?"✓":"—")}</td>
+      <td>${c.receipt&&c.receiptUrl?'<img src="'+c.receiptUrl+'" style="height:46px;border-radius:4px">':(c.receipt?"✓":"—")}</td>
       <td style="text-align:right">${fmt(running)}</td></tr>`;}).join("");
   const tot=list.reduce((s,c)=>s+c.amount,0);
   const withRec=list.filter(c=>c.receipt).length;
@@ -611,7 +611,7 @@ function receiptGallery(list){
   const cells=list.map((c,i)=>{
     running+=c.amount;
     const p=person(c.personId);
-    const thumb=c.receiptUrl
+    const thumb=(c.receipt&&c.receiptUrl)
       ? `<img src="${c.receiptUrl}" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0" />`
       : `<div style="height:120px;display:flex;align-items:center;justify-content:center;background:#f1f3f9;border-radius:8px 8px 0 0;color:#98a0b3;font-size:26px">${c.receipt?"📄":"—"}</div>`;
     return `<div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">
