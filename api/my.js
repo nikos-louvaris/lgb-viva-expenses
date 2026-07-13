@@ -13,8 +13,9 @@ module.exports = async (req, res) => {
   try {
     const q = req.query || {};
     const ws = await wallets();
+    const EXCLUDED = new Set(["901067108914"]); // Λυμπέρης Μελκί — εξαιρέθηκε
     const members = (Array.isArray(ws) ? ws : []).filter(
-      (w) => w.hasIssuedCard && !w.isPrimary && w.friendlyName && w.friendlyName !== "ακυρο"
+      (w) => w.hasIssuedCard && !w.isPrimary && w.friendlyName && w.friendlyName !== "ακυρο" && !EXCLUDED.has(String(w.walletId))
     );
 
     // Λίστα προσωπικών links για τον CFO

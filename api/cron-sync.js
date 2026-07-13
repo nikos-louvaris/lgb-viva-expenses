@@ -32,9 +32,10 @@ async function dsPage(token, page) {
 module.exports = async (req, res) => {
   try {
     const ws = await wallets();
+    const EXCLUDED = new Set(["901067108914"]); // Λυμπέρης Μελκί — εξαιρέθηκε
     const members = new Set(
       (Array.isArray(ws) ? ws : [])
-        .filter((w) => w.hasIssuedCard && !w.isPrimary && w.friendlyName && w.friendlyName !== "ακυρο")
+        .filter((w) => w.hasIssuedCard && !w.isPrimary && w.friendlyName && w.friendlyName !== "ακυρο" && !EXCLUDED.has(String(w.walletId)))
         .map((w) => String(w.walletId))
     );
     const token = await dsToken();
