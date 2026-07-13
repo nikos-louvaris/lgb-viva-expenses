@@ -69,8 +69,8 @@ async function load(){
   try{ const r=await fetch(`/api/my?w=${encodeURIComponent(W)}&t=${encodeURIComponent(T)}`); d=await r.json(); if(!r.ok) throw new Error(d.error||"error"); }
   catch(e){ document.getElementById("sub").textContent="Το link δεν είναι έγκυρο. Ζήτησε νέο."; return; }
   const [y,mo]=d.month.split("-");
-  document.getElementById("hello").textContent="Γεια σου "+(d.name.split(" ")[0]||d.name)+"!";
-  document.getElementById("sub").textContent="Κάρτα •••• "+d.card+" · "+MN[+mo-1]+" "+y;
+  document.getElementById("hello").textContent="👋 "+d.name;
+  document.getElementById("sub").textContent="Κάρτα •••• "+d.card+" · "+MN[+mo-1]+" "+y+" — αν το όνομα δεν είναι σωστό, ενημέρωσέ μας";
   const ch=d.charges||[];
   const total=ch.reduce((s,c)=>s+c.amount,0);
   const done=ch.filter(c=>c.has_receipt&&c.project).length;

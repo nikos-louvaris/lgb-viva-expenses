@@ -157,6 +157,9 @@ const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SAR
 // μικρό υποσύνολο μόνο για την παραγωγή δοκιμαστικών χρεώσεων
 const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME"];
 const INTERNAL="LGB HOME";
+// Σωστά ελληνικά ονόματα ανά κάρτα (ίδια με το my.js)
+const NAMES={"448933314799":"Άγγελος Χρονόπουλος","324887741089":"Α. Κολυγλιάτης","566240519800":"Κώστας Κρυωνάς","282541651501":"Ιωάννα Σκούρα","657494082292":"Λουκία Μπαλτζή","910827445981":"Άντα Μπαϊρακτάρη","975269802823":"Κ. Παρασκευόπουλος","405838582045":"Ζωή Ηγουμένη","389933252655":"Μ. Θιβαίου","968554634120":"Μ. Σιταροπούλου","577335556525":"Αναστασία Κοβάνη","990263759336":"Δήμητρα Λάκη","243763678466":"Άγγελος Γκουτζέλας"};
+function niceName(walletId,friendly){if(NAMES[String(walletId)])return NAMES[String(walletId)];const m=String(friendly||"").match(/^(.*?)\s*\d{4}$/);return (m?m[1]:friendly||"").trim();}
 // ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
 // π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
 // όποια κάρτα/υπάλληλος κι αν το χρεώσει. Επεκτείνεται ελεύθερα.
@@ -580,7 +583,7 @@ function printPackage(kind,id){
       <td>${c.merchant}</td>
       <td style="text-align:right">${fmt(c.amount)}</td>
       <td>${isP?(c.project||"—"):(p?p.name:"—")}</td>
-      <td>${c.receipt?"✓":(receiptExempt(c)?"διόδια":"—")}</td>
+      <td>${c.receiptUrl?'<img src="'+c.receiptUrl+'" style="height:46px;border-radius:4px">':(c.receipt?"✓":"—")}</td>
       <td style="text-align:right">${fmt(running)}</td></tr>`;}).join("");
   const tot=list.reduce((s,c)=>s+c.amount,0);
   const withRec=list.filter(c=>c.receipt).length;
@@ -645,7 +648,7 @@ async function reloadState(manual){
       PEOPLE.length=0;
       ws.forEach((w,i)=>{
         const m=w.friendlyName.match(/^(.*?)\s*(\d{4})$/);
-        PEOPLE.push({id:i+1,name:(m?m[1]:w.friendlyName).trim(),card:m?m[2]:"----",
+        PEOPLE.push({id:i+1,name:niceName(w.walletId,w.friendlyName),card:m?m[2]:"----",
           phone:"",walletId:w.walletId,balance:w.amount});
       });
     }
@@ -662,7 +665,7 @@ async function reloadState(manual){
         ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:dt.getDate(),when:c.occurred_at,
           dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
           hm:String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0"),
-          merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,
+          merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,receiptUrl:c.receipt_url||null,
           project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
           pending:c.status==="PENDING_CLEAR", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
