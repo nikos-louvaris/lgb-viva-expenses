@@ -3,6 +3,28 @@
 //  GET ?links=1                 → (για CFO) όλα τα προσωπικά links για διανομή
 const { wallets, sbSelect, personToken, verifyToken } = require("./_viva.js");
 
+// Σωστά ελληνικά ονόματα ανά κάρτα (ώστε ο καθένας να αναγνωρίζει το όνομά του)
+const NAMES = {
+  "448933314799": "Άγγελος Χρονόπουλος",
+  "324887741089": "Α. Κολυγλιάτης",
+  "566240519800": "Κώστας Κρυωνάς",
+  "282541651501": "Ιωάννα Σκούρα",
+  "657494082292": "Λουκία Μπαλτζή",
+  "910827445981": "Άντα Μπαϊρακτάρη",
+  "975269802823": "Κ. Παρασκευόπουλος",
+  "405838582045": "Ζωή Ηγουμένη",
+  "389933252655": "Μ. Θιβαίου",
+  "968554634120": "Μ. Σιταροπούλου",
+  "577335556525": "Αναστασία Κοβάνη",
+  "990263759336": "Δήμητρα Λάκη",
+  "243763678466": "Άγγελος Γκουτζέλας",
+};
+const niceName = (walletId, friendly) => {
+  if (NAMES[String(walletId)]) return NAMES[String(walletId)];
+  const m = String(friendly || "").match(/^(.*?)\s*\d{4}$/);
+  return (m ? m[1] : friendly || "").trim();
+};
+
 function baseUrl(req) {
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   const proto = req.headers["x-forwarded-proto"] || "https";
@@ -24,7 +46,7 @@ module.exports = async (req, res) => {
       const list = members.map((w) => {
         const m = w.friendlyName.match(/^(.*?)\s*(\d{4})$/);
         return {
-          name: (m ? m[1] : w.friendlyName).trim(),
+          name: niceName(w.walletId, w.friendlyName),
           card: m ? m[2] : "----",
           link: `${base}/me.html?w=${w.walletId}&t=${personToken(w.walletId)}`,
         };
@@ -40,7 +62,7 @@ module.exports = async (req, res) => {
     const wallet = members.find((x) => String(x.walletId) === w);
     if (!wallet) return res.status(404).json({ error: "Δεν βρέθηκε η κάρτα" });
     const m = wallet.friendlyName.match(/^(.*?)\s*(\d{4})$/);
-    const name = (m ? m[1] : wallet.friendlyName).trim();
+    const name = niceName(w, wallet.friendlyName);
     const card = m ? m[2] : "----";
 
     const ym = new Date().toISOString().slice(0, 7);
