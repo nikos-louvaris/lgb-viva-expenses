@@ -3,7 +3,7 @@
 // POST → νέα κίνηση· κρατάμε μόνο αγορές με κάρτα (SubTypeId 100/104)
 const { webhookKey, sbInsert } = require("./_viva.js");
 
-const CARD_PURCHASE = new Set([100, 104]);
+const CARD_PURCHASE = new Set([100, 104]); // εκκαθαρισμένη αγορά με κάρτα
 
 module.exports = async (req, res) => {
   try {
@@ -15,7 +15,10 @@ module.exports = async (req, res) => {
 
     const body = req.body || {};
     const e = body.EventData;
-    if (!e || body.EventTypeId !== 2054 || !CARD_PURCHASE.has(e.SubTypeId)) {
+    if (!e || body.EventTypeId !== 2054) return res.status(200).json({ ignored: true });
+    // Κρατάμε: εκκαθαρισμένες αγορές (100/104) ΚΑΙ δεσμεύσεις/authorizations (101 ή IsAuthorization)
+    const isAuth = e.IsAuthorization === true || e.SubTypeId === 101;
+    if (!CARD_PURCHASE.has(e.SubTypeId) && !isAuth) {
       return res.status(200).json({ ignored: true });
     }
     const charge = {
@@ -28,7 +31,7 @@ module.exports = async (req, res) => {
       has_receipt: false,
       comment: "",
       project: null,
-      status: "MISSING_ALL",
+      status: isAuth ? "PENDING_CLEAR" : "MISSING_ALL", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
       raw: e,
     };
     const r = await sbInsert("charges", charge);
