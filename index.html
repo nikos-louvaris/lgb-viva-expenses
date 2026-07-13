@@ -641,7 +641,7 @@ async function reloadState(manual){
     const d=await r.json();
     LIVE_OK=true;
     if(Array.isArray(d.wallets)&&d.wallets.length){
-      const ws=d.wallets.filter(w=>w.hasIssuedCard&&!w.isPrimary&&w.friendlyName&&w.friendlyName!=="ακυρο");
+      const ws=d.wallets.filter(w=>w.hasIssuedCard&&!w.isPrimary&&w.friendlyName&&w.friendlyName!=="ακυρο"&&String(w.walletId)!=="901067108914"); // Λυμπέρης Μελκί — εξαιρέθηκε
       PEOPLE.length=0;
       ws.forEach((w,i)=>{
         const m=w.friendlyName.match(/^(.*?)\s*(\d{4})$/);
