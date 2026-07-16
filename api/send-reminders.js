@@ -82,7 +82,15 @@ module.exports = async (req, res) => {
     }
 
     if (action === "run") {
-      const type = String(q.type || "INSTANT").toUpperCase();
+      let type = String(q.type || "INSTANT").toUpperCase();
+      // type=auto → αποφασίζει μόνο του βάσει ημερομηνίας (τοπική ώρα Ελλάδας)
+      if (type === "AUTO") {
+        const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Athens" }));
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        if (now.getDate() === lastDay) type = "MONTH_END";   // ΤΕΛΕΥΤΑΙΑ μέρα του μήνα (όποια μέρα κι αν είναι, ακόμα & Κυριακή)
+        else if (now.getDay() === 5) type = "WEEKLY";         // Παρασκευή
+        else type = "EOD";                                    // καθημερινό συγκεντρωτικό
+      }
       const emails = await readEmails();
       const ym = new Date().toISOString().slice(0, 7);
       const rows = await sbSelect("charges", `select=*&order=occurred_at.desc&limit=1000`);
