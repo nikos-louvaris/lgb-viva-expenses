@@ -130,6 +130,13 @@
     <button class="tab" data-tab="thekla" onclick="switchTab('thekla')">Προβολή Θέκλας</button>
   </div>
 
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px;padding:10px 12px;background:#f0f4ff;border:1px solid #c9d6ff;border-radius:10px">
+    <b style="font-size:13px">⬇ Κατέβασε ΟΛΩΝ των υπαλλήλων (τρέχων μήνας):</b>
+    <button class="btn btn-ghost btn-sm" onclick="exportAllExcel()">📊 Excel (όλοι)</button>
+    <button class="btn btn-ghost btn-sm" onclick="downloadReceiptsZip('month',null,this)">🗂 ZIP όλων των αποδείξεων</button>
+    <span class="mini">— όλες οι αποδείξεις όλων σε ένα αρχείο, + λίστα cross-check (τι λείπει vs Viva)</span>
+  </div>
+
   <div class="panel" id="content"></div>
 
   <footer>Σύστημα Εξόδων · AiWonderLab · Let's Go Bananas — ζωντανά δεδομένα από Viva (PLAYGROUND LADS I.K.E.). Οι εταιρικές χρεώσεις της κεντρικής κάρτας δεν εμφανίζονται εδώ.</footer>
@@ -404,7 +411,7 @@ function openProject(pr){
 
 /* ---------------- ΑΝΑ ΑΤΟΜΟ ---------------- */
 function viewPeople(){
-  let html=`<table><thead><tr><th>Όνομα</th><th class="mini">Κάρτα</th><th class="num">Σύνολο</th><th>Πληρότητα</th><th class="num">Σε εκκρεμότητα</th><th>Τελευταία ειδοποίηση</th><th></th></tr></thead><tbody>`;
+  let html=`<table><thead><tr><th>Όνομα</th><th class="mini">Κάρτα</th><th class="num">Σύνολο</th><th>Πληρότητα</th><th class="num">Σε εκκρεμότητα</th><th>Ειδοποίηση</th><th>Λήψεις</th></tr></thead><tbody>`;
   PEOPLE.forEach(p=>{
     const list=personCharges(p.id);
     if(!list.length) return;
@@ -416,8 +423,10 @@ function viewPeople(){
       <td class="num">${fmt(list.reduce((s,c)=>s+c.amount,0))}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%;background:${pct===100?'var(--ok)':pct>=60?'var(--warn)':'var(--bad)'}"></i></div><span class="mini">${list.length-miss.length}/${list.length}</span></div></td>
       <td class="num">${miss.length?fmt(pendAmt):"—"}</td>
-      <td class="mini">${miss.length?"πριν 3 ώρες":"—"}</td>
-      <td>${miss.length?`<button class="btn btn-warn btn-sm" onclick="event.stopPropagation();previewMsg(${p.id})">✉️ Υπενθύμιση</button>`:'<span class="badge b-ok">ΟΚ</span>'}</td></tr>`;
+      <td class="mini">${miss.length?`<button class="btn btn-warn btn-sm" onclick="event.stopPropagation();previewMsg(${p.id})">✉️</button>`:'<span class="badge b-ok">ΟΚ</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" title="Excel" onclick="event.stopPropagation();exportPersonExcel(${p.id})">📊</button>
+          <button class="btn btn-ghost btn-sm" title="PDF με αποδείξεις" onclick="event.stopPropagation();printPackage('person',${p.id})">📄</button>
+          <button class="btn btn-ghost btn-sm" title="ZIP αποδείξεων" onclick="event.stopPropagation();downloadReceiptsZip('person',${p.id},this)">🗂</button></td></tr>`;
   });
   return html+`</tbody></table>`;
 }
