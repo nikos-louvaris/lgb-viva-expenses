@@ -58,6 +58,32 @@ function compose(firstName, walletId, card, miss, type) {
   return { subject, html, text };
 }
 
+// Καλωσόρισμα / ενημέρωση (onboarding) — μίνι brief + προσωπικό link
+function welcomeEmail(firstName, walletId, card) {
+  const link = `${BASE}/me.html?w=${walletId}&t=${personToken(walletId)}`;
+  const subject = `👋 Καλωσήρθες στο Σύστημα Εξόδων — το προσωπικό σου link`;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:580px;margin:auto;color:#1a1a2e">
+    <h2 style="font-size:19px;margin:0 0 6px">Καλησπέρα ${firstName}! 🍌</h2>
+    <p style="font-size:14px;line-height:1.5">Από εδώ και πέρα, τα έξοδα με την <b>εταιρική σου κάρτα Viva</b> (•••• ${card}) τα διαχειριζόμαστε όλα από μία πλατφόρμα. Αυτό είναι το <b>δικό σου προσωπικό link</b> — ανοίγει κατευθείαν στο όνομά σου.</p>
+    <div style="background:#f6f7fb;border:1px solid #e6e8f0;border-radius:12px;padding:14px 16px;margin:14px 0">
+      <b style="font-size:14px">Τι κάνεις κάθε φορά που χρεώνεσαι με την κάρτα:</b>
+      <ol style="margin:8px 0 0;padding-left:18px;font-size:13.5px;line-height:1.6">
+        <li>Μπες στο προσωπικό σου link (πιο κάτω).</li>
+        <li>Βρες τη χρέωση — φαίνεται αυτόματα.</li>
+        <li>Ανέβασε <b>φωτογραφία της απόδειξης</b> 📷 και διάλεξε το <b>project</b>. Τέλος.</li>
+      </ol>
+    </div>
+    <div style="background:#fffbea;border:1px solid #f6d55c;border-radius:10px;padding:11px 13px;margin:12px 0;font-size:13px;color:#5f4b00">
+      📸 Η φωτογραφία να είναι <b>καθαρή &amp; ολόκληρη</b>, ίσια, να διαβάζεται <b>το ποσό</b>. Όχι θολή/κομμένη. Αν είναι ξεθωριασμένη, γράψε πάνω της με στυλό το ποσό.
+    </div>
+    <p style="text-align:center;margin:18px 0"><a href="${link}" style="background:#4f46e5;color:#fff;padding:14px 26px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px">Άνοιξε τη σελίδα σου ➜</a></p>
+    <p style="font-size:12.5px;color:#555;line-height:1.5">📱 Ανοίγει από <b>κινητό &amp; υπολογιστή</b>. Στο κινητό, κράτησέ το στην αρχική οθόνη για να το έχεις πρόχειρο. Το link είναι προσωπικό — μη το μοιράζεσαι.</p>
+    <p style="font-size:12.5px;color:#555;line-height:1.5">Ό,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο (επιστρέφεται αν την ανεβάσεις αργότερα). <b>Ξεκινάμε από 1η Αυγούστου.</b></p>
+    <p style="font-size:11px;color:#999">Σύστημα Εξόδων — Let's Go Bananas. Για απορίες, απάντησε σε αυτό το email.</p></div>`;
+  const text = `Καλησπέρα ${firstName}! Από εδώ και πέρα τα έξοδα της εταιρικής σου κάρτας (••••${card}) τα διαχειριζόμαστε από μία πλατφόρμα.\n\nΤο προσωπικό σου link: ${link}\n\nΚάθε φορά που χρεώνεσαι: μπες, βρες τη χρέωση, ανέβασε φωτ. απόδειξης + διάλεξε project. Καθαρή & ολόκληρη φωτο, να φαίνεται το ποσό. Ανοίγει από κινητό & υπολογιστή. Ξεκινάμε 1η Αυγούστου.`;
+  return { subject, html, text };
+}
+
 module.exports = async (req, res) => {
   try {
     const q = req.query || {};
@@ -79,6 +105,32 @@ module.exports = async (req, res) => {
       ], "INSTANT");
       const r = await resend(to, "[ΔΕΙΓΜΑ] " + s.subject, s.html, s.text, q.from);
       return res.status(200).json({ ok: r.ok, to, from: q.from || FROM, resend: r });
+    }
+
+    // Δείγμα welcome σε ΕΝΑ email (για προεπισκόπηση)
+    if (action === "welcome") {
+      const to = q.to || REVIEW;
+      const w = String(q.w || "566240519800");
+      const emails = await readEmails();
+      const info = emails[w] || { firstName: "Κώστα", name: "Κώστας Κρυωνάς", card: "1288" };
+      const e = welcomeEmail(info.firstName || info.name, w, info.card || "");
+      const r = await resend(to, "[ΔΕΙΓΜΑ] " + e.subject, e.html, e.text, q.from);
+      return res.status(200).json({ ok: r.ok, to, resend: r });
+    }
+
+    // Αποστολή welcome σε ΟΛΟΥΣ (13 εταιρικά email) — ΤΟ ΤΡΕΧΟΥΜΕ ΣΤΟ MEETING
+    if (action === "welcome-all") {
+      const emails = await readEmails();
+      const results = [];
+      for (const w of Object.keys(emails)) {
+        const info = emails[w];
+        const e = welcomeEmail(info.firstName || info.name, w, info.card || "");
+        for (const to of (info.emails || [])) {
+          const r = await resend(to, e.subject, e.html, e.text);
+          results.push({ person: info.name, to, ok: r.ok, err: r.error });
+        }
+      }
+      return res.status(200).json({ ok: true, people: Object.keys(emails).length, sent: results.length, results });
     }
 
     if (action === "run") {
