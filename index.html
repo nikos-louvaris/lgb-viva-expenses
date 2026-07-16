@@ -7,6 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Σύστημα Εξόδων — AiWonderLab</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --bg:#f5f6fa; --card:#fff; --ink:#171923; --muted:#697086; --line:#e6e8f0;
@@ -395,7 +396,7 @@ function openProject(pr){
     <div class="drawer-foot">
       <button class="btn btn-ghost" onclick="exportProjectExcel('${pr.replace(/'/g,"\\'")}')">📊 Excel</button>
       <button class="btn btn-ghost" onclick="printPackage('project','${pr.replace(/'/g,"\\'")}')">📄 Όλα σε PDF</button>
-      <button class="btn btn-ghost" onclick="toast('Κατέβασμα όλων των εικόνων σε ZIP — σύντομα διαθέσιμο')">🗂 ZIP εικόνων</button>
+      <button class="btn btn-ghost" onclick="downloadReceiptsZip('project','${pr.replace(/'/g,"\\'")}',this)">🗂 ZIP αποδείξεων</button>
       <button class="btn btn-primary" ${ready?"":"disabled"} onclick="toast('${ready?"Το κλείσιμο μήνα θα ενεργοποιηθεί στην πλήρη έκδοση":""}')">🔒 Κλείσιμο μήνα</button>
       <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα καταχωρήσει τα έξοδα στο Elorus LGB → ΕΞΟΔΟΛΟΓΙΑ: ${pr.replace(/'/g,"\\'")} (πλήρης έκδοση)')">📗 Στείλε στο Elorus</button>
     </div>`);
@@ -444,6 +445,7 @@ function openPerson(pid){
       ${miss.length?`<button class="btn btn-warn" onclick="previewMsg(${pid})">💬 Προεπισκόπηση email υπενθύμισης</button>`:""}
       <button class="btn btn-ghost" onclick="exportPersonExcel(${pid})">📊 Excel</button>
       <button class="btn btn-ghost" onclick="printPackage('person',${pid})">📄 Όλα σε PDF</button>
+      <button class="btn btn-ghost" onclick="downloadReceiptsZip('person',${pid},this)">🗂 ZIP αποδείξεων</button>
     </div>`);
 }
 
@@ -497,9 +499,9 @@ function viewThekla(sub){
     inner=`<table><thead><tr><th>Project</th><th class="num">Σύνολο</th><th class="num">Χρεώσεις</th><th>Πληρότητα</th><th>Λήψεις (ανά πάσα στιγμή)</th></tr></thead><tbody>
     ${rows.map(r=>{const pct=Math.round(r.ok/r.n*100);return `<tr><td class="name">${r.project}</td><td class="num">${fmt(r.total)}</td><td class="num">${r.n}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%"></i></div><span class="mini">${r.ok}/${r.n}</span></div></td>
-      <td><button class="btn btn-ghost btn-sm" onclick="printPackage('project','${r.project.replace(/'/g,"\\'")}')">PDF</button>
-          <button class="btn btn-ghost btn-sm" onclick="toast('Κατέβασμα εικόνων σε ZIP — σύντομα διαθέσιμο')">ZIP εικόνων</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportProjectExcel('${r.project.replace(/'/g,"\\'")}')">Excel</button></td></tr>`}).join("")}
+      <td><button class="btn btn-ghost btn-sm" onclick="printPackage('project','${r.project.replace(/'/g,"\\'")}')">📄 PDF</button>
+          <button class="btn btn-ghost btn-sm" onclick="downloadReceiptsZip('project','${r.project.replace(/'/g,"\\'")}',this)">🗂 ZIP</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportProjectExcel('${r.project.replace(/'/g,"\\'")}')">📊 Excel</button></td></tr>`}).join("")}
     </tbody></table>`;
   } else if(sub==="people"){
     // ΟΛΟΙ οι υπάλληλοι, όλος ο μήνας — όχι μόνο ελλείψεις
@@ -508,8 +510,9 @@ function viewThekla(sub){
       return `<tr onclick="openPerson(${p.id})"><td class="name">${p.name} <span class="mini">•••• ${p.card}</span></td><td class="num">${l.length}</td><td class="num">${fmt(tot)}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${pct}%;background:${pct===100?'var(--ok)':pct>=60?'var(--warn)':'var(--bad)'}"></i></div><span class="mini">${done}/${l.length} ✓ · 📎 ${rec}/${l.length}</span></div></td>
       <td class="num">${pend?fmt(pend):"—"}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();exportPersonExcel(${p.id})">Excel</button>
-          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();printPackage('person',${p.id})">PDF</button></td></tr>`}).join("")||'<tr><td colspan="6" class="empty">Καμία χρέωση αυτόν τον μήνα</td></tr>'}
+      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();exportPersonExcel(${p.id})">📊 Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();printPackage('person',${p.id})">📄 PDF</button>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();downloadReceiptsZip('person',${p.id},this)">🗂 ZIP</button></td></tr>`}).join("")||'<tr><td colspan="6" class="empty">Καμία χρέωση αυτόν τον μήνα</td></tr>'}
     </tbody></table>`;
   } else {
     inner=`<table><thead><tr><th>Όνομα</th><th class="num">Ελλείψεις</th><th class="num">Ποσό σε εκκρεμότητα</th><th>Τελευταία ειδοποίηση</th><th></th></tr></thead><tbody>
@@ -521,7 +524,13 @@ function viewThekla(sub){
     </tbody></table>`;
   }
   return `<div style="padding:18px">
-    <div class="note">👩‍💼 Προβολή λογίστριας (Θέκλα): <b>πλήρης πρόσβαση</b>. Βλέπει ΟΛΟΝ τον μήνα κάθε υπαλλήλου (τι χτύπησε, τι έχει/δεν έχει απόδειξη & project), διορθώνει τα πάντα όπως ο CFO, στέλνει υπενθυμίσεις, και κατεβάζει Excel/PDF ανά άτομο ή project. Μόνο η πολιτική ποινών και το οριστικό κλείσιμο μήνα μένουν σε Κώστα/Λούβαρη.</div>
+    <div class="note">👩‍💼 Προβολή λογίστριας (Θέκλα): <b>πλήρης πρόσβαση</b>. Βλέπει ΟΛΟΝ τον μήνα κάθε υπαλλήλου (τι χτύπησε, τι έχει/δεν έχει απόδειξη & project), διορθώνει τα πάντα όπως ο CFO, στέλνει υπενθυμίσεις, και κατεβάζει Excel/PDF/ZIP ανά άτομο, ανά project ή για ΟΛΟΝ τον μήνα. Μόνο η πολιτική ποινών και το οριστικό κλείσιμο μήνα μένουν σε Κώστα/Λούβαρη.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#f0f4ff;border:1px solid #c9d6ff;border-radius:10px">
+      <b style="align-self:center;font-size:13px">⬇ Κατέβασε όλον τον μήνα:</b>
+      <button class="btn btn-ghost btn-sm" onclick="exportAllExcel()">📊 Excel (όλοι)</button>
+      <button class="btn btn-ghost btn-sm" onclick="downloadReceiptsZip('month',null,this)">🗂 ZIP όλων των αποδείξεων</button>
+      <span class="mini" style="align-self:center">— το ZIP περιέχει και λίστα cross-check που δείχνει ποιες αποδείξεις λείπουν vs Viva</span>
+    </div>
     <div class="subtabs">
       <button class="subtab ${sub==='people'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('people')">Ανά άτομο — όλος ο μήνας</button>
       <button class="subtab ${sub==='projects'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('projects')">Έξοδα ανά project</button>
@@ -601,6 +610,11 @@ function exportProjectExcel(pr){
 function exportPersonExcel(pid){
   const p=person(pid); const list=personCharges(pid);
   downloadCSV(chargesToRows(list),"LGB_"+p.name.replace(/[^A-Za-zΑ-Ωα-ω0-9]/g,"_")+"_"+SELECTED_MONTH+".csv");
+}
+// ΟΛΟΣ ο μήνας, όλοι οι υπάλληλοι — ένα Excel (για cross-check με τη Viva)
+function exportAllExcel(){
+  const list=CHARGES.slice().sort((a,b)=>(a.when||"").localeCompare(b.when||""));
+  downloadCSV(chargesToRows(list),"LGB_OLOS_O_MHNAS_"+SELECTED_MONTH+".csv");
 }
 // Εκτυπώσιμο πακέτο (Save as PDF) — όλη η πληροφορία ανά άτομο ή ανά project για τον μήνα.
 // Οι εικόνες αποδείξεων μπαίνουν αυτόματα μόλις ανοίξει το Viva PDF API· τώρα δείχνει όλα τα στοιχεία.
@@ -700,6 +714,47 @@ function openReceipt(url,cap){
 }
 function closeReceipt(){const lb=document.getElementById("lightbox");if(lb)lb.style.display="none";}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeReceipt();});
+
+// Κατέβασμα ΟΛΩΝ των αποδείξεων σε ΕΝΑ ZIP (ανά άτομο / ανά project / όλος ο μήνας)
+// + λίστα cross-check (_ΛΙΣΤΑ.csv) που δείχνει και ποιες αποδείξεις ΛΕΙΠΟΥΝ σε σχέση με τη Viva.
+async function downloadReceiptsZip(kind,id,btn){
+  if(typeof JSZip==="undefined"){toast("Το εργαλείο ZIP φορτώνει ακόμα — δοκίμασε ξανά σε λίγο");return;}
+  let list,label;
+  if(kind==="month"){list=CHARGES.slice();label="OLOS_O_MHNAS";}
+  else if(kind==="person"){list=personCharges(id);label=(person(id)||{}).name||("atomo_"+id);}
+  else{list=CHARGES.filter(c=>c.project===id);label=id;}
+  list=list.slice().sort((a,b)=>(a.when||"").localeCompare(b.when||""));
+  const withRec=list.filter(c=>c.receipt&&c.receiptUrl);
+  if(!withRec.length){toast("Δεν υπάρχουν ακόμα αποδείξεις εδώ για κατέβασμα");return;}
+  const monthLbl=SELECTED_MONTH; const oldTxt=btn?btn.textContent:"";
+  if(btn){btn.disabled=true;btn.textContent="⏳ ZIP…";}
+  toast("Ετοιμάζω ZIP με "+withRec.length+" αποδείξεις…");
+  try{
+    const zip=new JSZip();
+    const esc=v=>{v=String(v==null?"":v);return /[";\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    const safe=s=>String(s||"").replace(/[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋ._-]+/g,"_").slice(0,40);
+    const man=[["Ημ/νία","Ώρα","Κατάστημα","Ποσό (€)","Άτομο","Project","Απόδειξη","Αρχείο ZIP"]];
+    let idx=0,okc=0;
+    for(const c of list){idx++;const p=person(c.personId);
+      const dd=(c.dm||"").replace(/\//g,"-"),hh=(c.hm||"").replace(/:/g,"");
+      const fname=String(idx).padStart(2,"0")+"_"+dd+"_"+hh+"_"+safe(c.merchant)+"_"+c.amount.toFixed(2)+"e.jpg";
+      let has="ΟΧΙ — ΛΕΙΠΕΙ",file="";
+      if(c.receipt&&c.receiptUrl){
+        try{const r=await fetch(c.receiptUrl);const b=await r.blob();zip.file(fname,b);has="ΝΑΙ";file=fname;okc++;}
+        catch(e){has="ΣΦΑΛΜΑ ΛΗΨΗΣ";}
+      }
+      man.push([c.dm||"",c.hm||"",c.merchant,c.amount.toFixed(2),p?p.name:"",c.project||"",has,file]);
+    }
+    const csv="﻿"+man.map(r=>r.map(esc).join(";")).join("\r\n");
+    zip.file("_ΛΙΣΤΑ_"+safe(label)+"_"+monthLbl+".csv",csv);
+    const blob=await zip.generateAsync({type:"blob"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    a.href=url;a.download="Apodeixeis_"+safe(label)+"_"+monthLbl+".zip";
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+    toast("✅ ZIP έτοιμο: "+okc+"/"+list.length+" αποδείξεις + λίστα cross-check");
+  }catch(e){toast("⚠️ Πρόβλημα στο ZIP — δοκίμασε ξανά");}
+  if(btn){btn.disabled=false;btn.textContent=oldTxt;}
+}
 
 render();
 
