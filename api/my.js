@@ -29,6 +29,47 @@ const niceName = (walletId, friendly) => {
   return (m ? m[1] : friendly || "").trim();
 };
 
+// Καθαρίζει τα ονόματα καταστημάτων ώστε να είναι αναγνωρίσιμα (π.χ. "AB_MIMIKOPOULEIO_215" → "ΑΒ Βασιλόπουλος",
+// "UBR* PENDING.UBER.COM" → "Uber"). Εφαρμόζεται ΜΟΝΟ στην εμφάνιση — ο εσωτερικός έλεγχος γίνεται στο πρωτότυπο.
+const BRANDS = [
+  [/FREE.?NOW|HOLD\.FREE-NOW/, "FREE NOW"],
+  [/UBER|\bUBR\b/, "Uber"],
+  [/EFOOD/, "efood"],
+  [/WOLT/, "Wolt"],
+  [/ABVASSILOPOULOS|^AB[\s_]|ΒΑΣΙΛΟΠΟΥΛ/, "ΑΒ Βασιλόπουλος"],
+  [/SHELL/, "Shell"],
+  [/\bEKO\b/, "ΕΚΟ"],
+  [/\bBP\b/, "BP"],
+  [/KAYSIMA ATTIKHS/, "Καύσιμα Αττικής"],
+  [/\bOASA\b/, "ΟΑΣΑ"],
+  [/SKROUTZ/, "Skroutz"],
+  [/ANTHROPIC/, "Anthropic (Claude)"],
+  [/OPENAI|CHATGPT/, "OpenAI (ChatGPT)"],
+  [/^ZARA/, "ZARA"],
+  [/JUMBO/, "Jumbo"],
+  [/^H\s?M\s|H&M|^HM\b/, "H&M"],
+  [/FLOCAFE/, "Flocafé"],
+  [/\bERGON\b/, "Ergon"],
+  [/ATTIKI ODOS/, "Αττική Οδός"],
+  [/OLYMPIA (ODOS|DIODIA|PACHI)/, "Ολυμπία Οδός"],
+  [/ELLESTIA MALL/, "Ellestia Mall"],
+  [/JOWAE/, "Jowaé"],
+];
+function cleanMerchant(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return "—";
+  s = s.replace(/^Δέσμευση Αγοράς με Viva Wallet Card\s*-?\s*/i, "")
+       .replace(/^Αγορά με Viva Wallet Card\s*-?\s*/i, "");
+  const U = s.toUpperCase();
+  for (const [re, name] of BRANDS) { if (re.test(U)) return name; }
+  s = s.replace(/^[A-Z0-9]{2,10}\s*\*\s*/i, "");          // κόβει "SQ* ", "IZ* " κ.λπ.
+  s = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/\s+(E\.?E\.?|A\.?E\.?|I\.?K\.?E\.?|S\.?A\.?|MONOPR\.?|LTD)\.?$/i, "").trim();
+  if (s.length < 2) return "Αγορά με κάρτα";
+  s = s.replace(/\b[A-Z][A-Z0-9&.\-]{2,}\b/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
+  return s;
+}
+
 // Καθαρισμός διπλοεγγραφών: η ίδια συναλλαγή μπορεί να έχει δέσμευση (webhook + sync) + εκκαθάριση.
 //  1) Ένωσε δεσμεύσεις της ΙΔΙΑΣ συναλλαγής (κανονικό id vs "AUTH-"+id) → μία εγγραφή.
 //  2) Αν μια αγορά εκκαθαρίστηκε, κράτα την οριστική και ρίξε την αντίστοιχη δέσμευση (ίδιο ποσό).
@@ -125,7 +166,7 @@ module.exports = async (req, res) => {
     const charges = (rows || []).map((c) => ({
       id: c.id,
       amount: Math.abs(+c.amount),
-      merchant: c.merchant || "—",
+      merchant: cleanMerchant(c.merchant),
       occurred_at: c.occurred_at,
       has_receipt: !!c.has_receipt,
       receipt_url: c.receipt_url || null,
