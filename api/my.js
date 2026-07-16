@@ -34,33 +34,46 @@ const niceName = (walletId, friendly) => {
 //  2) Αν μια αγορά εκκαθαρίστηκε, κράτα την οριστική και ρίξε την αντίστοιχη δέσμευση (ίδιο ποσό).
 function dedupCharges(rows) {
   const norm = (id) => String(id || "").replace(/^AUTH-/, "");
-  const better = (a, b) => {
-    const pa = a.status === "PENDING_CLEAR", pb = b.status === "PENDING_CLEAR";
-    if (pa !== pb) return pa ? b : a;                       // προτίμησε εκκαθαρισμένη
-    const da = /^Δέσμευση/.test(a.merchant || ""), db = /^Δέσμευση/.test(b.merchant || "");
-    if (da !== db) return da ? b : a;                       // προτίμησε το πραγματικό όνομα μαγαζιού
-    if ((a.has_receipt || a.project) && !(b.has_receipt || b.project)) return a;
-    return b;
-  };
+  const isDesm = (m) => /^Δέσμευση/.test(m || "");
+  // 1) Ένωσε γραμμές της ΙΔΙΑΣ συναλλαγής (δέσμευση από webhook + από sync). Κράτα πραγματικό μαγαζί & ΝΩΡΙΤΕΡΗ ώρα (=στιγμή αγοράς).
   const byId = new Map();
   for (const c of rows) {
     const k = norm(c.viva_tx_id);
-    byId.set(k, byId.has(k) ? better(byId.get(k), c) : c);
+    const ex = byId.get(k);
+    if (!ex) { byId.set(k, { ...c }); continue; }
+    const m = { ...ex };
+    if (isDesm(m.merchant) && !isDesm(c.merchant)) m.merchant = c.merchant;         // πραγματικό όνομα μαγαζιού
+    if (String(c.occurred_at || "") < String(m.occurred_at || "")) m.occurred_at = c.occurred_at; // νωρίτερη = χτύπημα
+    if (c.has_receipt) { m.has_receipt = true; m.receipt_url = c.receipt_url || m.receipt_url; }
+    if (c.project) m.project = c.project;
+    if (ex.status !== "PENDING_CLEAR" || c.status !== "PENDING_CLEAR")
+      m.status = ex.status === "PENDING_CLEAR" ? c.status : ex.status;
+    byId.set(k, m);
   }
   const list = [...byId.values()];
-  // πόσες εκκαθαρισμένες ανά ποσό
-  const consume = {};
-  list.filter((c) => c.status !== "PENDING_CLEAR").forEach((c) => {
-    const k = Math.abs(+c.amount).toFixed(2); consume[k] = (consume[k] || 0) + 1;
-  });
-  const out = [];
-  for (const c of list) {
-    if (c.status === "PENDING_CLEAR") {
-      const k = Math.abs(+c.amount).toFixed(2);
-      if (consume[k] > 0) { consume[k]--; continue; }        // η δέσμευση καλύπτεται από οριστική → ρίξ' την
+  // 2) Ταίριασε ΔΕΣΜΕΥΣΗ (χτύπημα) με ΕΚΚΑΘΑΡΙΣΗ (ίδιο ποσό). Κράτα τη ΔΕΣΜΕΥΣΗ (σωστή ώρα+μαγαζί), σημείωσέ την εκκαθαρισμένη, ρίξε την εκκαθάριση.
+  const auths = list.filter((c) => c.status === "PENDING_CLEAR");
+  const settls = list.filter((c) => c.status !== "PENDING_CLEAR");
+  const pool = {};
+  for (const a of auths) { const k = Math.abs(+a.amount).toFixed(2); (pool[k] = pool[k] || []).push(a); }
+  const keptSettls = [];
+  for (const s of settls) {
+    const k = Math.abs(+s.amount).toFixed(2);
+    if (pool[k] && pool[k].length) {
+      const a = pool[k].shift();
+      a._cleared = true;                                     // η αγορά εκκαθαρίστηκε — αλλά κρατάμε την ώρα του χτυπήματος
+      if (s.has_receipt) { a.has_receipt = true; a.receipt_url = s.receipt_url || a.receipt_url; }
+      if (s.project) a.project = s.project;
+    } else {
+      keptSettls.push(s);                                    // χωρίς δέσμευση → κράτα την εκκαθάριση
     }
-    out.push(c);
   }
+  const out = [];
+  for (const a of auths) {
+    if (a._cleared) a.status = (a.has_receipt && a.project) ? "COMPLETE" : "MISSING_ALL"; // εκκαθαρισμένη, όχι ⏳
+    out.push(a);
+  }
+  for (const s of keptSettls) out.push(s);
   return out;
 }
 
