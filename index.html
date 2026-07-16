@@ -691,10 +691,15 @@ async function reloadState(manual){
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,receiptUrl:c.receipt_url||null,
           project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
           pending:c.status==="PENDING_CLEAR", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
+          vid:String(c.viva_tx_id||""),
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
-      // DEDUP: αν μια δέσμευση (⏳) έχει ήδη εκκαθαριστεί (ίδιο wallet+ποσό, οριστική χρέωση),
-      // κρύψε τη δέσμευση ώστε να μη μετριέται διπλά. Η οριστική υπερισχύει.
+      // DEDUP #1: ένωσε την ΙΔΙΑ συναλλαγή που μπήκε 2 φορές ως δέσμευση (id vs "AUTH-"+id)
+      {const norm=id=>String(id||"").replace(/^AUTH-/,"");
+       const better=(a,b)=>{if(a.pending!==b.pending)return a.pending?b:a;const da=/^Δέσμευση/.test(a.merchant),db=/^Δέσμευση/.test(b.merchant);if(da!==db)return da?b:a;return (a.receipt||a.project)?a:b;};
+       const m=new Map();for(const c of ALL_CHARGES){const k=norm(c.vid);m.set(k,m.has(k)?better(m.get(k),c):c);}
+       ALL_CHARGES.length=0;for(const c of m.values())ALL_CHARGES.push(c);}
+      // DEDUP #2: αν μια δέσμευση (⏳) έχει ήδη εκκαθαριστεί (ίδιο wallet+ποσό), κρύψ' την.
       const settledKeys=new Set(ALL_CHARGES.filter(c=>!c.pending).map(c=>c.walletId+"|"+c.amount.toFixed(2)));
       for(let i=ALL_CHARGES.length-1;i>=0;i--){
         const c=ALL_CHARGES[i];
