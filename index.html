@@ -163,6 +163,8 @@ const START_DATE="2026-07-16";
 // Σωστά ελληνικά ονόματα ανά κάρτα (ίδια με το my.js)
 const NAMES={"448933314799":"Άγγελος Χρονόπουλος","324887741089":"Ανδρέας Κολυγλιάτης","566240519800":"Κώστας Κρυωνάς","282541651501":"Ιωάννα Σκούρα","657494082292":"Λουκία Μπαλτζή","910827445981":"Άντα Μπαϊρακτάρη","975269802823":"Αίας Παρασκευόπουλος","405838582045":"Ζωή Ηγουμενίδη","389933252655":"Μαριλού Θηβαίου","968554634120":"Μαριλένα Σιταροπούλου","577335556525":"Αναστασία Κοβάνη","990263759336":"Δήμητρα Λάκη","243763678466":"Ντόριαν Γκουτζέλας"};
 function niceName(walletId,friendly){if(NAMES[String(walletId)])return NAMES[String(walletId)];const m=String(friendly||"").match(/^(.*?)\s*\d{4}$/);return (m?m[1]:friendly||"").trim();}
+// Ώρα Ελλάδας (Europe/Athens) ανεξαρτήτως offset της Viva — ημ/νία & ώρα χτυπήματος
+function grParts(iso){try{const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));const g=t=>(p.find(x=>x.type===t)||{}).value||"00";return {dm:g("day")+"/"+g("month"),hm:g("hour")+":"+g("minute")};}catch(e){return {dm:"",hm:""};}}
 // ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
 // π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
 // όποια κάρτα/υπάλληλος κι αν το χρεώσει. Επεκτείνεται ελεύθερα.
@@ -687,27 +689,29 @@ async function reloadState(manual){
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
         if(String(c.occurred_at||"")<START_DATE) return; // μόνο από σήμερα κι έπειτα
-        const dt=new Date(c.occurred_at);
-        ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:dt.getDate(),when:c.occurred_at,
-          dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
-          hm:String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0"),
+        const gp=grParts(c.occurred_at);
+        ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:new Date(c.occurred_at).getDate(),when:c.occurred_at,
+          dm:gp.dm,hm:gp.hm,
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,receiptUrl:c.receipt_url||null,
           project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
           pending:c.status==="PENDING_CLEAR", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
           vid:String(c.viva_tx_id||""),
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
-      // DEDUP #1: ένωσε την ΙΔΙΑ συναλλαγή που μπήκε 2 φορές ως δέσμευση (id vs "AUTH-"+id)
-      {const norm=id=>String(id||"").replace(/^AUTH-/,"");
-       const better=(a,b)=>{if(a.pending!==b.pending)return a.pending?b:a;const da=/^Δέσμευση/.test(a.merchant),db=/^Δέσμευση/.test(b.merchant);if(da!==db)return da?b:a;return (a.receipt||a.project)?a:b;};
-       const m=new Map();for(const c of ALL_CHARGES){const k=norm(c.vid);m.set(k,m.has(k)?better(m.get(k),c):c);}
-       ALL_CHARGES.length=0;for(const c of m.values())ALL_CHARGES.push(c);}
-      // DEDUP #2: αν μια δέσμευση (⏳) έχει ήδη εκκαθαριστεί (ίδιο wallet+ποσό), κρύψ' την.
-      const settledKeys=new Set(ALL_CHARGES.filter(c=>!c.pending).map(c=>c.walletId+"|"+c.amount.toFixed(2)));
-      for(let i=ALL_CHARGES.length-1;i>=0;i--){
-        const c=ALL_CHARGES[i];
-        if(c.pending && settledKeys.has(c.walletId+"|"+c.amount.toFixed(2))) ALL_CHARGES.splice(i,1);
-      }
+      // DEDUP #1: ένωσε την ΙΔΙΑ συναλλαγή (webhook+sync) — κράτα ΟΛΟΚΛΗΡΗ τη γραμμή με πραγματικό μαγαζί & ΝΩΡΙΤΕΡΗ ώρα (=χτύπημα)
+      {const norm=id=>String(id||"").replace(/^AUTH-/,""),isD=m=>/^Δέσμευση/.test(m||"");
+       const better=(a,b)=>{if(isD(a.merchant)!==isD(b.merchant))return isD(a.merchant)?b:a;return (String(a.when||"")<=String(b.when||""))?a:b;};
+       const mp=new Map();for(const c of ALL_CHARGES){const k=norm(c.vid);mp.set(k,mp.has(k)?better(mp.get(k),c):c);}
+       ALL_CHARGES.length=0;for(const c of mp.values())ALL_CHARGES.push(c);}
+      // DEDUP #2: ταίριασε δέσμευση(χτύπημα)↔εκκαθάριση ίδιου ποσού. Κράτα τη ΔΕΣΜΕΥΣΗ (σωστή ώρα), κάν' τη εκκαθαρισμένη, ρίξε την εκκαθάριση.
+      {const pool={};for(const a of ALL_CHARGES){if(a.pending){const k=a.walletId+"|"+a.amount.toFixed(2);(pool[k]=pool[k]||[]).push(a);}}
+       const drop=new Set();
+       for(const s of ALL_CHARGES){if(s.pending)continue;const k=s.walletId+"|"+s.amount.toFixed(2);
+         if(pool[k]&&pool[k].length){const a=pool[k].shift();a.pending=false;
+           if(s.receipt){a.receipt=true;a.receiptUrl=s.receiptUrl||a.receiptUrl;}
+           if(s.project){a.project=s.project;a.internal=s.project===INTERNAL;}
+           drop.add(s);}}
+       for(let i=ALL_CHARGES.length-1;i>=0;i--)if(drop.has(ALL_CHARGES[i]))ALL_CHARGES.splice(i,1);}
     }
     await loadExemptions(); // φέρε τις εξαιρέσεις (διόδια κ.λπ.) από τη βάση — ισχύουν αμέσως
     await loadProjects();   // φέρε τα έξτρα projects (νέοι πελάτες)
