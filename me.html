@@ -114,11 +114,15 @@ function draw(){
   document.getElementById("s-total").textContent=fmt(total);
   document.getElementById("s-done").textContent=doneN+"/"+all.length;
   document.getElementById("s-left").textContent=all.length-doneN;
-  // Κουμπί: κρύψε/δείξε τις ήδη τακτοποιημένες (φωτο + project) — καθαρή προβολή by default
+  // Κουμπί: κρύψε/δείξε τις ήδη τακτοποιημένες (φωτο + project). Φαίνεται ΠΑΝΤΑ σε όλους, για συνέπεια.
   const tgl=document.getElementById("donetoggle");
-  if(doneN>0){
+  if(all.length>0){
     tgl.style.display="block";
-    tgl.innerHTML=`<button onclick="toggleDone()" style="width:100%;padding:11px;border:1px solid var(--line);background:#fff;border-radius:11px;font-weight:700;color:var(--brand);cursor:pointer;font-size:13.5px">${SHOW_DONE?"🙈 Κρύψε τις τακτοποιημένες — καθαρή προβολή":"👁 Δες & τις "+doneN+" τακτοποιημένες (έλεγχος / αλλαγή φωτο)"}</button>`;
+    if(doneN>0){
+      tgl.innerHTML=`<button onclick="toggleDone()" style="width:100%;padding:11px;border:1px solid var(--line);background:#fff;border-radius:11px;font-weight:700;color:var(--brand);cursor:pointer;font-size:13.5px">${SHOW_DONE?"🙈 Κρύψε τις τακτοποιημένες — καθαρή προβολή":"👁 Δες & τις "+doneN+" τακτοποιημένες (έλεγχος / αλλαγή φωτο)"}</button>`;
+    }else{
+      tgl.innerHTML=`<div style="width:100%;padding:11px;border:1px dashed var(--line);background:#fafbff;border-radius:11px;text-align:center;font-size:12.5px;color:#8a92a8">👁 Όλες οι χρεώσεις φαίνονται — δεν έχει τακτοποιηθεί καμία ακόμα (μόλις ανεβάσεις φωτο + project, θα μπορείς να τις κρύβεις εδώ)</div>`;
+    }
   }else{tgl.style.display="none";tgl.innerHTML="";}
   const shown=SHOW_DONE?all:all.filter(c=>!isDone(c));
   const list=document.getElementById("list");
