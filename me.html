@@ -49,6 +49,7 @@
   <h1 id="hello">Οι χρεώσεις μου</h1>
   <div class="sub" id="sub">Φόρτωση…</div>
   <div class="mnav" id="mnav" style="display:none"><button onclick="changeMonth(-1)" aria-label="Προηγούμενος">‹</button><span id="mlabel">—</span><button onclick="changeMonth(1)" aria-label="Επόμενος">›</button></div>
+  <div id="refline" style="display:none;margin-top:10px"><button id="refbtn" onclick="manualRefresh()" style="background:rgba(255,255,255,.18);border:none;color:#fff;font-weight:700;font-size:13px;padding:7px 14px;border-radius:9px;cursor:pointer">🔄 Μόλις χρέωσα — ανανέωση</button></div>
 </header>
 <div class="sum" id="sum" style="display:none">
   <div class="box"><div class="n" id="s-total">—</div><div class="l">σύνολο μήνα</div></div>
@@ -56,7 +57,7 @@
   <div class="box"><div class="n" id="s-left">—</div><div class="l">εκκρεμούν</div></div>
 </div>
 <div class="wrap">
-  <div class="note">📸 <b>Πώς να βγάλεις σωστά την απόδειξη:</b> καθαρή και <b>ολόκληρη</b>, ίσια, να διαβάζεται <b>το τελικό ποσό</b>. Όχι θολή, όχι κομμένη/μισή, όχι πολύ κοντινή — μια κανονική, ίσια φωτογραφία. Αν η απόδειξη είναι ξεθωριασμένη, γράψε πάνω της με στυλό το ποσό.<br><br>Για κάθε χρέωση: ανέβασε τη φωτ. + διάλεξε <b>project</b>. Ό,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο.</div>
+  <div class="note">⏱️ <b>Ανέβασέ τη ΤΩΡΑ, με την απόδειξη στο χέρι.</b> Η χρέωση εμφανίζεται εδώ μέσα σε λίγα δευτερόλεπτα από τη στιγμή που χτυπάς την κάρτα. Για ψώνια από περίπτερο, φούρνο, σούπερ μάρκετ, βενζινάδικο (χάρτινη απόδειξη στο χέρι) → φωτογράφισέ τη επιτόπου, μη ρισκάρεις να χαθεί. Για efood/Wolt/delivery ανέβασέ τη μόλις έρθει η παραγγελία.<br><br>📸 <b>Καλή φωτογραφία:</b> καθαρή, <b>ολόκληρη</b>, ίσια, να διαβάζεται <b>το τελικό ποσό</b>. Όχι θολή/κομμένη. Αν η απόδειξη είναι ξεθωριασμένη, γράψε πάνω της με στυλό το ποσό.<br><br>Για κάθε χρέωση: φωτ. + <b>project</b>. Ό,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο.</div>
   <div id="list"></div>
 </div>
 <div class="toast" id="toast"></div>
@@ -82,8 +83,20 @@ async function refresh(){
   ALLCH=d.charges||[]; NAME=d.name; CARD=d.card; if(!SM) SM=d.month;
   document.getElementById("hello").textContent="👋 "+NAME;
   document.getElementById("mnav").style.display="flex";
+  document.getElementById("refline").style.display="block";
   draw();
 }
+// Ήσυχη ανανέωση κάθε 40" όσο η σελίδα είναι ανοιχτή + όταν επιστρέφει το focus,
+// ώστε μια φρέσκια χρέωση (π.χ. από περίπτερο) να εμφανίζεται μόνη της. Δεν διακόπτει ανέβασμα.
+function busyNow(){return !!document.querySelector(".busy");}
+async function silentRefresh(){ if(document.hidden||busyNow())return; try{await refresh();}catch(e){} }
+async function manualRefresh(){
+  const b=document.getElementById("refbtn"); const old=b.textContent; b.textContent="⏳ Ανανέωση…";
+  try{await refresh(); toast("✅ Ενημερώθηκε");}catch(e){}
+  b.textContent=old;
+}
+setInterval(silentRefresh,40000);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) silentRefresh(); });
 function draw(){
   const [y,mo]=SM.split("-");
   document.getElementById("mlabel").textContent=MN[+mo-1]+" "+y;

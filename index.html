@@ -165,6 +165,9 @@ const NAMES={"448933314799":"Άγγελος Χρονόπουλος","32488774108
 function niceName(walletId,friendly){if(NAMES[String(walletId)])return NAMES[String(walletId)];const m=String(friendly||"").match(/^(.*?)\s*\d{4}$/);return (m?m[1]:friendly||"").trim();}
 // Ώρα Ελλάδας (Europe/Athens) ανεξαρτήτως offset της Viva — ημ/νία & ώρα χτυπήματος
 function grParts(iso){try{const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));const g=t=>(p.find(x=>x.type===t)||{}).value||"00";return {dm:g("day")+"/"+g("month"),hm:g("hour")+":"+g("minute")};}catch(e){return {dm:"",hm:""};}}
+// Καθαρίζει τα ονόματα καταστημάτων για εμφάνιση (μετά το dedup — το dedup χρειάζεται το πρωτότυπο "Δέσμευση…").
+const _BRANDS=[[/FREE.?NOW|HOLD\.FREE-NOW/,"FREE NOW"],[/UBER|\bUBR\b/,"Uber"],[/EFOOD/,"efood"],[/WOLT/,"Wolt"],[/ABVASSILOPOULOS|^AB[\s_]|ΒΑΣΙΛΟΠΟΥΛ/,"ΑΒ Βασιλόπουλος"],[/SHELL/,"Shell"],[/\bEKO\b/,"ΕΚΟ"],[/\bBP\b/,"BP"],[/KAYSIMA ATTIKHS/,"Καύσιμα Αττικής"],[/\bOASA\b/,"ΟΑΣΑ"],[/SKROUTZ/,"Skroutz"],[/ANTHROPIC/,"Anthropic (Claude)"],[/OPENAI|CHATGPT/,"OpenAI (ChatGPT)"],[/^ZARA/,"ZARA"],[/JUMBO/,"Jumbo"],[/^H\s?M\s|H&M|^HM\b/,"H&M"],[/FLOCAFE/,"Flocafé"],[/\bERGON\b/,"Ergon"],[/ATTIKI ODOS/,"Αττική Οδός"],[/OLYMPIA (ODOS|DIODIA|PACHI)/,"Ολυμπία Οδός"],[/ELLESTIA MALL/,"Ellestia Mall"],[/JOWAE/,"Jowaé"]];
+function cleanMerchant(raw){let s=String(raw||"").trim();if(!s)return "—";s=s.replace(/^Δέσμευση Αγοράς με Viva Wallet Card\s*-?\s*/i,"").replace(/^Αγορά με Viva Wallet Card\s*-?\s*/i,"");const U=s.toUpperCase();for(const [re,name] of _BRANDS){if(re.test(U))return name;}s=s.replace(/^[A-Z0-9]{2,10}\s*\*\s*/i,"").replace(/_/g," ").replace(/\s+/g," ").trim();s=s.replace(/\s+(E\.?E\.?|A\.?E\.?|I\.?K\.?E\.?|S\.?A\.?|MONOPR\.?|LTD)\.?$/i,"").trim();if(s.length<2)return "Αγορά με κάρτα";return s.replace(/\b[A-Z][A-Z0-9&.\-]{2,}\b/g,w=>w.charAt(0)+w.slice(1).toLowerCase());}
 // ---- ΡΥΘΜΙΣΕΙΣ: καταστήματα που ΔΕΝ απαιτούν απόδειξη (αυτόματα συστήματα χωρίς παραστατικό) ----
 // π.χ. Αττική Οδός (αυτόματα διόδια). Ό,τι μπαίνει εδώ ΔΕΝ κυνηγιέται ποτέ για απόδειξη,
 // όποια κάρτα/υπάλληλος κι αν το χρεώσει. Επεκτείνεται ελεύθερα.
@@ -712,6 +715,8 @@ async function reloadState(manual){
            if(s.project){a.project=s.project;a.internal=s.project===INTERNAL;}
            drop.add(s);}}
        for(let i=ALL_CHARGES.length-1;i>=0;i--)if(drop.has(ALL_CHARGES[i]))ALL_CHARGES.splice(i,1);}
+      // Καθάρισε τα ονόματα καταστημάτων για εμφάνιση (τώρα που το dedup τελείωσε)
+      for(const c of ALL_CHARGES) c.merchant=cleanMerchant(c.merchant);
     }
     await loadExemptions(); // φέρε τις εξαιρέσεις (διόδια κ.λπ.) από τη βάση — ισχύουν αμέσως
     await loadProjects();   // φέρε τα έξτρα projects (νέοι πελάτες)
