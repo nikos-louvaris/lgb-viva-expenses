@@ -691,7 +691,8 @@ async function reloadState(manual){
       d.charges.forEach((c)=>{
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
-        if(String(c.occurred_at||"")<START_DATE) return; // μόνο από σήμερα κι έπειτα
+        // ΔΕΝ φιλτράρουμε εδώ με START_DATE — πρώτα κάνουμε dedup σε ΟΛΟΥΣ τους μήνες (όπως η προσωπική σελίδα),
+        // ώστε οι σημερινές εκκαθαρίσεις παλιών αγορών να ταιριάξουν & να μη μείνουν σαν φαντάσματα.
         const gp=grParts(c.occurred_at);
         ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:new Date(c.occurred_at).getDate(),when:c.occurred_at,
           dm:gp.dm,hm:gp.hm,
@@ -701,10 +702,18 @@ async function reloadState(manual){
           vid:String(c.viva_tx_id||""),
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
-      // DEDUP #1: ένωσε την ΙΔΙΑ συναλλαγή (webhook+sync) — κράτα ΟΛΟΚΛΗΡΗ τη γραμμή με πραγματικό μαγαζί & ΝΩΡΙΤΕΡΗ ώρα (=χτύπημα)
+      // DEDUP #1: ένωσε την ΙΔΙΑ συναλλαγή (webhook+sync) σε ΜΙΑ γραμμή. ΣΥΓΧΩΝΕΥΕΙ τα πεδία (δεν πετάει καμία γραμμή ολόκληρη),
+      // ώστε να μη χαθεί απόδειξη/project που μπήκε στη μία εκδοχή. Κρατά πραγματικό μαγαζί + ΝΩΡΙΤΕΡΗ ώρα (=χτύπημα).
       {const norm=id=>String(id||"").replace(/^AUTH-/,""),isD=m=>/^Δέσμευση/.test(m||"");
-       const better=(a,b)=>{if(isD(a.merchant)!==isD(b.merchant))return isD(a.merchant)?b:a;return (String(a.when||"")<=String(b.when||""))?a:b;};
-       const mp=new Map();for(const c of ALL_CHARGES){const k=norm(c.vid);mp.set(k,mp.has(k)?better(mp.get(k),c):c);}
+       const mp=new Map();
+       for(const c of ALL_CHARGES){const k=norm(c.vid);const ex=mp.get(k);
+         if(!ex){mp.set(k,c);continue;}
+         if(isD(ex.merchant)&&!isD(c.merchant)) ex.merchant=c.merchant;                 // κράτα το πραγματικό όνομα μαγαζιού
+         if(String(c.when||"")<String(ex.when||"")){ex.when=c.when;ex.dm=c.dm;ex.hm=c.hm;ex.day=c.day;} // νωρίτερη = χτύπημα
+         if(c.receipt){ex.receipt=true;ex.receiptUrl=c.receiptUrl||ex.receiptUrl;}      // κράτα την απόδειξη από όποια γραμμή την έχει
+         if(c.project){ex.project=c.project;ex.internal=c.internal;}                     // κράτα το project από όποια γραμμή το έχει
+         if(!c.pending) ex.pending=false;                                               // αν έστω μία εκκαθαρίστηκε → δεν εκκρεμεί
+       }
        ALL_CHARGES.length=0;for(const c of mp.values())ALL_CHARGES.push(c);}
       // DEDUP #2: ταίριασε δέσμευση(χτύπημα)↔εκκαθάριση ίδιου ποσού. Κράτα τη ΔΕΣΜΕΥΣΗ (σωστή ώρα), κάν' τη εκκαθαρισμένη, ρίξε την εκκαθάριση.
       {const pool={};for(const a of ALL_CHARGES){if(a.pending){const k=a.walletId+"|"+a.amount.toFixed(2);(pool[k]=pool[k]||[]).push(a);}}
@@ -715,6 +724,9 @@ async function reloadState(manual){
            if(s.project){a.project=s.project;a.internal=s.project===INTERNAL;}
            drop.add(s);}}
        for(let i=ALL_CHARGES.length-1;i>=0;i--)if(drop.has(ALL_CHARGES[i]))ALL_CHARGES.splice(i,1);}
+      // ΜΕΤΑ το dedup: κράτα μόνο ό,τι ΧΤΥΠΗΣΕ από την έναρξη (START_DATE) κι έπειτα —
+      // ώστε οι σημερινές εκκαθαρίσεις παλιών αγορών να μην εμφανίζονται σαν νέες γραμμές.
+      for(let i=ALL_CHARGES.length-1;i>=0;i--)if(String(ALL_CHARGES[i].when||"")<START_DATE)ALL_CHARGES.splice(i,1);
       // Καθάρισε τα ονόματα καταστημάτων για εμφάνιση (τώρα που το dedup τελείωσε)
       for(const c of ALL_CHARGES) c.merchant=cleanMerchant(c.merchant);
     }
