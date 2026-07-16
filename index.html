@@ -158,6 +158,8 @@ const PROJECTS=["ATTRATIVO", "BWIN", "CAPRICE-SARANTIS", "CLINEA-SARANTIS", "SAR
 // μικρό υποσύνολο μόνο για την παραγωγή δοκιμαστικών χρεώσεων
 const DEMO_POOL=["BWIN", "ATTRATIVO", "CAPRICE-SARANTIS", "SEPHORA", "INTERSPORT", "THE ELLINIKON", "VODAFONE", "CROCS", "SNF NIARXOS", "LGB HOME"];
 const INTERNAL="LGB HOME";
+// Έναρξη καταγραφής — δείχνουμε ΜΟΝΟ χρεώσεις από αυτή τη μέρα κι έπειτα (καθαρή εικόνα)
+const START_DATE="2026-07-16";
 // Σωστά ελληνικά ονόματα ανά κάρτα (ίδια με το my.js)
 const NAMES={"448933314799":"Άγγελος Χρονόπουλος","324887741089":"Ανδρέας Κολυγλιάτης","566240519800":"Κώστας Κρυωνάς","282541651501":"Ιωάννα Σκούρα","657494082292":"Λουκία Μπαλτζή","910827445981":"Άντα Μπαϊρακτάρη","975269802823":"Αίας Παρασκευόπουλος","405838582045":"Ζωή Ηγουμενίδη","389933252655":"Μαριλού Θηβαίου","968554634120":"Μαριλένα Σιταροπούλου","577335556525":"Αναστασία Κοβάνη","990263759336":"Δήμητρα Λάκη","243763678466":"Ντόριαν Γκουτζέλας"};
 function niceName(walletId,friendly){if(NAMES[String(walletId)])return NAMES[String(walletId)];const m=String(friendly||"").match(/^(.*?)\s*\d{4}$/);return (m?m[1]:friendly||"").trim();}
@@ -684,6 +686,7 @@ async function reloadState(manual){
       d.charges.forEach((c)=>{
         const p=PEOPLE.find(x=>x.walletId===c.wallet_id);
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
+        if(String(c.occurred_at||"")<START_DATE) return; // μόνο από σήμερα κι έπειτα
         const dt=new Date(c.occurred_at);
         ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:dt.getDate(),when:c.occurred_at,
           dm:String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"),
