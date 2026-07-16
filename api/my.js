@@ -3,6 +3,10 @@
 //  GET ?links=1                 → (για CFO) όλα τα προσωπικά links για διανομή
 const { wallets, sbSelect, personToken, verifyToken } = require("./_viva.js");
 
+// Έναρξη καταγραφής — δείχνουμε ΜΟΝΟ χρεώσεις από αυτή τη μέρα κι έπειτα.
+// (Οι παλιές του Ιουλίου δεν θα τακτοποιηθούν — καθαρή εικόνα από σήμερα.)
+const START_DATE = "2026-07-16";
+
 // Σωστά ελληνικά ονόματα ανά κάρτα (ώστε ο καθένας να αναγνωρίζει το όνομά του)
 const NAMES = {
   "448933314799": "Άγγελος Χρονόπουλος",
@@ -102,7 +106,8 @@ module.exports = async (req, res) => {
 
     const ym = new Date().toISOString().slice(0, 7); // τρέχων μήνας (προεπιλογή)
     const rowsRaw = await sbSelect("charges", `wallet_id=eq.${w}&order=occurred_at.desc&limit=1000`);
-    const rows = dedupCharges(rowsRaw || []); // καθάρισε διπλοεγγραφές (δέσμευση/εκκαθάριση)
+    const rows = dedupCharges(rowsRaw || [])
+      .filter((c) => String(c.occurred_at || "") >= START_DATE); // μόνο από σήμερα κι έπειτα
     // Επιστρέφουμε ΟΛΟΥΣ τους μήνες — η σελίδα κάνει πλοήγηση μπρος-πίσω και φιλτράρει.
     const charges = (rows || []).map((c) => ({
       id: c.id,
