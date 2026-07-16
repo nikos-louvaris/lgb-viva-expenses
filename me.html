@@ -38,7 +38,8 @@
   .mnav span{font-weight:800;font-size:15px;min-width:130px;text-align:center}
   input[type=file]{display:none}
   select{width:100%;margin-top:9px;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:#fff}
-  .thumb{margin-top:10px;width:100%;max-height:190px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  .thumb{margin-top:10px;width:100%;max-height:190px;object-fit:cover;border-radius:10px;border:1px solid var(--line);cursor:zoom-in}
+  a.dl{display:block;text-align:center;margin-top:6px;font-size:12.5px;font-weight:700;color:var(--brand);text-decoration:none}
   .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
   .empty{text-align:center;color:#78809a;padding:40px 12px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
@@ -125,10 +126,12 @@ function pill(c){
 }
 function cardHtml(c){
   const opts='<option value="">Διάλεξε project…</option>'+ALLP().map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("")+'<option value="__NEW__">➕ Άλλο (γράψε νέο)…</option>';
+  const dl=c.receipt_url?c.receipt_url+(c.receipt_url.includes("?")?"&":"?")+"download=apodeixi_"+c.id+".jpg":"";
   return `<div class="card" id="c-${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
-    ${c.has_receipt&&c.receipt_url?`<img class="thumb" src="${c.receipt_url}">`:""}
-    <label class="up ${c.has_receipt?"done":""}" for="f-${c.id}" onclick="toast('📸 Καθαρή & ολόκληρη — να φαίνεται το τελικό ποσό, όχι θολή!')">${c.has_receipt?"✓ Απόδειξη ανέβηκε — άλλαξέ τη":"📷 Ανέβασε φωτογραφία απόδειξης"}</label>
+    ${c.has_receipt&&c.receipt_url?`<a href="${c.receipt_url}" target="_blank" rel="noopener"><img class="thumb" src="${c.receipt_url}" title="Πάτησε για μεγάλη εικόνα"></a>
+    <a class="dl" href="${dl}">🔍 Δες σε μεγάλη ανάλυση / κατέβασέ την</a>`:""}
+    <label class="up ${c.has_receipt?"done":""}" for="f-${c.id}" onclick="toast('📸 Καθαρή & ολόκληρη — να φαίνεται το τελικό ποσό, όχι θολή!')">${c.has_receipt?"✓ Αποθηκεύτηκε — πάτησε για να την αλλάξεις":"📷 Ανέβασε φωτογραφία απόδειξης"}</label>
     <div class="uphint">📸 καθαρή · ολόκληρη · ίσια · να φαίνεται το τελικό ποσό · όχι θολή/κομμένη</div>
     <input type="file" id="f-${c.id}" accept="image/*" capture="environment" onchange="upload(${c.id},this)">
     <select onchange="setProject(${c.id},this.value)">${opts}</select>
@@ -138,11 +141,12 @@ function cardHtml(c){
 function resize(file){return new Promise(res=>{
   const img=new Image();const rd=new FileReader();
   rd.onload=()=>{img.onload=()=>{
-    const max=1400;let{width:w,height:h}=img;
+    // Υψηλή ανάλυση ώστε η λογίστρια να μπορεί να την κατεβάσει, να την εκτυπώσει & να την αρχειοθετήσει (hard copy).
+    const max=2200;let{width:w,height:h}=img;
     if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}
     const cv=document.createElement("canvas");cv.width=w;cv.height=h;
     cv.getContext("2d").drawImage(img,0,0,w,h);
-    res(cv.toDataURL("image/jpeg",0.82));
+    res(cv.toDataURL("image/jpeg",0.92));
   };img.src=rd.result;};
   rd.readAsDataURL(file);
 });}

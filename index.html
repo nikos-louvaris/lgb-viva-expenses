@@ -620,11 +620,22 @@ function printPackage(kind,id){
       <td style="text-align:right">${fmt(running)}</td></tr>`;}).join("");
   const tot=list.reduce((s,c)=>s+c.amount,0);
   const withRec=list.filter(c=>c.receipt).length;
+  // Παράρτημα: κάθε απόδειξη σε ΜΕΓΑΛΟ μέγεθος, μία-μία, για αρχείο/εκτύπωση/έλεγχο της λογιστικής.
+  const appendix=list.filter(c=>c.receipt&&c.receiptUrl).map(c=>{const p=person(c.personId);
+    return `<div class="rc">
+      <div class="rc-h">${fmt(c.amount)} · ${c.merchant} · ${c.dm||""} ${c.hm||""} · ${isP?(c.project||"—"):(p?p.name:"—")}</div>
+      <img src="${c.receiptUrl}" class="rc-img">
+    </div>`;}).join("");
   const html=`<!doctype html><html lang="el"><head><meta charset="utf-8"><title>${title} — ${monthLbl}</title>
     <style>body{font-family:Arial,sans-serif;color:#1a1a2e;padding:24px}h1{font-size:20px;margin:0}
     .sub{color:#666;margin:4px 0 16px}table{border-collapse:collapse;width:100%;font-size:13px}
     th,td{border-bottom:1px solid #e5e7eb;padding:7px 9px;text-align:left}th{background:#f5f6fa}
-    tfoot td{font-weight:800;border-top:2px solid #333}@media print{button{display:none}}</style></head>
+    tfoot td{font-weight:800;border-top:2px solid #333}
+    h2{font-size:16px;margin:26px 0 10px;border-top:2px solid #333;padding-top:14px}
+    .rc{margin:0 0 18px;page-break-inside:avoid;break-inside:avoid}
+    .rc-h{font-weight:700;font-size:13px;margin-bottom:6px}
+    .rc-img{max-width:520px;width:100%;border:1px solid #ccc;border-radius:6px}
+    @media print{button{display:none}}</style></head>
     <body>
     <h1>${isP?"Καρτέλα ατόμου":"Πακέτο project"}: ${title}</h1>
     <div class="sub">${monthLbl} · ${list.length} χρεώσεις · ${withRec}/${list.length} με απόδειξη · Let's Go Bananas (PLAYGROUND LADS)</div>
@@ -632,6 +643,7 @@ function printPackage(kind,id){
     <table><thead><tr><th>Ημ/νία & ώρα</th><th>Κατάστημα</th><th style="text-align:right">Ποσό</th><th>${isP?"Project":"Άτομο"}</th><th>Απόδ.</th><th style="text-align:right">Τρέχον σύνολο</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr><td colspan="2">ΣΥΝΟΛΟ</td><td style="text-align:right">${fmt(tot)}</td><td colspan="3"></td></tr></tfoot></table>
+    ${appendix?`<h2>Αποδείξεις σε πλήρες μέγεθος (για αρχείο)</h2>${appendix}`:""}
     <p style="color:#999;font-size:11px;margin-top:18px">Οι φωτογραφίες αποδείξεων προέρχονται από τα ανεβάσματα των υπαλλήλων.</p>
     </body></html>`;
   const w=window.open("","_blank");
@@ -644,8 +656,10 @@ function receiptGallery(list){
   const cells=list.map((c,i)=>{
     running+=c.amount;
     const p=person(c.personId);
+    const cap=`${p?p.name:""} · ${c.merchant} · ${fmt(c.amount)}`.replace(/"/g,"'");
+    const dl=c.receiptUrl?c.receiptUrl+(c.receiptUrl.includes("?")?"&":"?")+"download=apodeixi_"+encodeURIComponent(cap.replace(/[^0-9A-Za-zΑ-Ωα-ω.\-]+/g,"_"))+".jpg":"";
     const thumb=(c.receipt&&c.receiptUrl)
-      ? `<img src="${c.receiptUrl}" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0" />`
+      ? `<img src="${c.receiptUrl}" data-u="${c.receiptUrl}" data-c="${cap}" onclick="openReceipt(this.dataset.u,this.dataset.c)" title="Πάτησε για μεγάλη ανάλυση" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in" />`
       : `<div style="height:120px;display:flex;align-items:center;justify-content:center;background:#f1f3f9;border-radius:8px 8px 0 0;color:#98a0b3;font-size:26px">${c.receipt?"📄":"—"}</div>`;
     return `<div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">
       ${thumb}
@@ -654,6 +668,7 @@ function receiptGallery(list){
         <div class="mini">${c.merchant} · ${c.dm?c.dm+" "+c.hm:String(c.day).padStart(2,"0")+"/06"}</div>
         <div class="mini">${p?p.name:"—"} ${c.receipt?"":"· <b style='color:var(--bad)'>χωρίς απόδειξη</b>"}</div>
         <div class="mini">τρέχον σύνολο: ${fmt(running)}</div>
+        ${c.receipt&&c.receiptUrl?`<div style="margin-top:6px;display:flex;gap:10px"><a href="#" data-u="${c.receiptUrl}" data-c="${cap}" onclick="openReceipt(this.dataset.u,this.dataset.c);return false" style="font-size:12px;font-weight:700;color:var(--brand);text-decoration:none">🔍 Μεγάλη</a><a href="${dl}" style="font-size:12px;font-weight:700;color:var(--brand);text-decoration:none">⬇ Κατέβασε</a></div>`:""}
       </div></div>`;
   }).join("");
   return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px">${cells}</div>`;
@@ -663,6 +678,28 @@ function receiptGallery(list){
 function openDrawer(html){document.getElementById("drawer").innerHTML=html;document.getElementById("drawer").classList.add("show");document.getElementById("overlay").classList.add("show")}
 function closeDrawer(){document.getElementById("drawer").classList.remove("show");document.getElementById("overlay").classList.remove("show")}
 let tt; function toast(msg){if(!msg)return;const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2600)}
+
+// Προβολή απόδειξης σε πλήρη ανάλυση + κατέβασμα (για τη λογίστρια / έλεγχο / αρχείο)
+function openReceipt(url,cap){
+  if(!url)return;
+  let lb=document.getElementById("lightbox");
+  if(!lb){lb=document.createElement("div");lb.id="lightbox";
+    lb.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(10,10,20,.93);display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:14px";
+    lb.onclick=e=>{if(e.target===lb)closeReceipt();};
+    document.body.appendChild(lb);}
+  const fn=("apodeixi_"+(cap||"")).replace(/[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋ.\-]+/g,"_")+".jpg";
+  const dl=url+(url.includes("?")?"&":"?")+"download="+encodeURIComponent(fn);
+  lb.innerHTML=`<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;color:#fff">
+      <span style="font-weight:700;font-size:14px;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cap||"Απόδειξη"}</span>
+      <a href="${dl}" style="background:#4f46e5;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">⬇ Κατέβασε</a>
+      <a href="${url}" target="_blank" rel="noopener" style="background:#374151;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">↗ Νέα καρτέλα</a>
+      <button onclick="closeReceipt()" style="background:#fff;color:#111;padding:8px 14px;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer">✕ Κλείσε</button>
+    </div>
+    <img src="${url}" style="max-width:96vw;max-height:82vh;object-fit:contain;border-radius:8px;background:#fff">`;
+  lb.style.display="flex";
+}
+function closeReceipt(){const lb=document.getElementById("lightbox");if(lb)lb.style.display="none";}
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeReceipt();});
 
 render();
 
