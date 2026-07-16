@@ -25,6 +25,41 @@ const niceName = (walletId, friendly) => {
   return (m ? m[1] : friendly || "").trim();
 };
 
+// Καθαρισμός διπλοεγγραφών: η ίδια συναλλαγή μπορεί να έχει δέσμευση (webhook + sync) + εκκαθάριση.
+//  1) Ένωσε δεσμεύσεις της ΙΔΙΑΣ συναλλαγής (κανονικό id vs "AUTH-"+id) → μία εγγραφή.
+//  2) Αν μια αγορά εκκαθαρίστηκε, κράτα την οριστική και ρίξε την αντίστοιχη δέσμευση (ίδιο ποσό).
+function dedupCharges(rows) {
+  const norm = (id) => String(id || "").replace(/^AUTH-/, "");
+  const better = (a, b) => {
+    const pa = a.status === "PENDING_CLEAR", pb = b.status === "PENDING_CLEAR";
+    if (pa !== pb) return pa ? b : a;                       // προτίμησε εκκαθαρισμένη
+    const da = /^Δέσμευση/.test(a.merchant || ""), db = /^Δέσμευση/.test(b.merchant || "");
+    if (da !== db) return da ? b : a;                       // προτίμησε το πραγματικό όνομα μαγαζιού
+    if ((a.has_receipt || a.project) && !(b.has_receipt || b.project)) return a;
+    return b;
+  };
+  const byId = new Map();
+  for (const c of rows) {
+    const k = norm(c.viva_tx_id);
+    byId.set(k, byId.has(k) ? better(byId.get(k), c) : c);
+  }
+  const list = [...byId.values()];
+  // πόσες εκκαθαρισμένες ανά ποσό
+  const consume = {};
+  list.filter((c) => c.status !== "PENDING_CLEAR").forEach((c) => {
+    const k = Math.abs(+c.amount).toFixed(2); consume[k] = (consume[k] || 0) + 1;
+  });
+  const out = [];
+  for (const c of list) {
+    if (c.status === "PENDING_CLEAR") {
+      const k = Math.abs(+c.amount).toFixed(2);
+      if (consume[k] > 0) { consume[k]--; continue; }        // η δέσμευση καλύπτεται από οριστική → ρίξ' την
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 function baseUrl(req) {
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   const proto = req.headers["x-forwarded-proto"] || "https";
@@ -66,7 +101,8 @@ module.exports = async (req, res) => {
     const card = m ? m[2] : "----";
 
     const ym = new Date().toISOString().slice(0, 7); // τρέχων μήνας (προεπιλογή)
-    const rows = await sbSelect("charges", `wallet_id=eq.${w}&order=occurred_at.desc&limit=1000`);
+    const rowsRaw = await sbSelect("charges", `wallet_id=eq.${w}&order=occurred_at.desc&limit=1000`);
+    const rows = dedupCharges(rowsRaw || []); // καθάρισε διπλοεγγραφές (δέσμευση/εκκαθάριση)
     // Επιστρέφουμε ΟΛΟΥΣ τους μήνες — η σελίδα κάνει πλοήγηση μπρος-πίσω και φιλτράρει.
     const charges = (rows || []).map((c) => ({
       id: c.id,

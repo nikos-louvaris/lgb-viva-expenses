@@ -22,7 +22,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ignored: true });
     }
     const charge = {
-      viva_tx_id: e.WalletTransactionId,
+      // ίδιο id σχήμα με τον sync: δέσμευση → "AUTH-"+id, εκκαθάριση → id (ώστε να μη διπλογράφεται)
+      viva_tx_id: isAuth ? "AUTH-" + e.WalletTransactionId : e.WalletTransactionId,
       wallet_id: e.WalletId,
       amount: Math.abs(e.Amount),
       merchant: e.Description || "",
