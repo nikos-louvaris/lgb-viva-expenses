@@ -122,6 +122,7 @@
   </div>
   <div class="recon ok" id="recon"></div>
   <div class="kpis" id="kpis"></div>
+  <div id="healthChip" style="margin:0 0 12px"></div>
 
   <div class="tabs">
     <button class="tab active" data-tab="projects" onclick="switchTab('projects')">Ανά Project <span class="cnt" id="cnt-projects"></span></button>
@@ -738,6 +739,24 @@ function openReceipt(url,cap){
 function closeReceipt(){const lb=document.getElementById("lightbox");if(lb)lb.style.display="none";}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeReceipt();});
 
+// «Δεύτερο μάτι»: ανεξάρτητος έλεγχος κόντρα στη Viva (διπλά / λάθος ποσά / λάθος ώρες) ανά κάρτα.
+let AUDIT=null;
+async function runAudit(){
+  const el=document.getElementById("healthChip"); if(!el)return;
+  el.innerHTML=`<div style="font-size:12.5px;color:#667;padding:8px 12px">🔍 Έλεγχος εγκυρότητας κόντρα στη Viva…</div>`;
+  try{
+    const r=await fetch("/api/audit",{cache:"no-store"}); const d=await r.json(); AUDIT=d;
+    if(!d.ok){el.innerHTML=`<div style="font-size:12.5px;color:#888;padding:8px 12px;background:#f6f7fb;border:1px solid var(--line);border-radius:10px">🔍 Ο αυτόματος έλεγχος δεν έτρεξε (${(d.error||"").slice(0,60)}).</div>`;return;}
+    if(!d.totalIssues){
+      el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#0f766e;padding:9px 13px;background:#e6f6ec;border:1px solid #86d3a2;border-radius:10px">✅ Διπλός έλεγχος OK — όλες οι κάρτες συμφωνούν με τη Viva (ποσά & ώρες). <span style="color:#5b8f7e;font-weight:500">Ελέγχθηκε ${new Date(d.generatedAt).toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit"})}</span></div>`;
+    }else{
+      const bad=d.people.filter(p=>p.issues.length);
+      const rows=bad.map(p=>`<div style="margin-top:6px"><b>${p.name}</b>: ${p.issues.map(i=>i.detail).join(" · ")}</div>`).join("");
+      el.innerHTML=`<div style="font-size:12.5px;color:#8a2b12;padding:10px 13px;background:#fdeee9;border:1px solid #f2b8a3;border-radius:10px"><b>⚠️ Ο διπλός έλεγχος βρήκε ${d.totalIssues} θέμα(τα) σε ${bad.length} κάρτα(ες):</b>${rows}<div style="margin-top:6px;color:#a55">Ελέγξτε τις παραπάνω πριν την καταχώρηση στο Elorus.</div></div>`;
+    }
+  }catch(e){el.innerHTML="";}
+}
+
 // Κατέβασμα ΟΛΩΝ των αποδείξεων σε ΕΝΑ ZIP (ανά άτομο / ανά project / όλος ο μήνας)
 // + λίστα cross-check (_ΛΙΣΤΑ.csv) που δείχνει και ποιες αποδείξεις ΛΕΙΠΟΥΝ σε σχέση με τη Viva.
 async function downloadReceiptsZip(kind,id,btn){
@@ -883,6 +902,8 @@ async function reloadState(manual){
 }
 // πρώτη φόρτωση + αυτόματη ανανέωση κάθε 30 δευτερόλεπτα (μόνο όταν είναι live)
 reloadState(false);
+runAudit();                                                    // «δεύτερο μάτι» — έλεγχος κόντρα στη Viva
+setInterval(()=>{ if(!document.hidden) runAudit(); }, 300000);  // κάθε 5'
 setInterval(()=>{ if(LIVE_OK && !document.hidden) reloadState(false); }, 30000);
 // και ανανέωση μόλις επιστρέψεις στην καρτέλα
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && LIVE_OK) reloadState(false); });
