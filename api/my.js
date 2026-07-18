@@ -181,6 +181,7 @@ module.exports = async (req, res) => {
       receipt_url: c.receipt_url || null,
       project: c.project || null,
       pending: c.status === "PENDING_CLEAR",
+      receipt_check: (c.raw && c.raw.receipt_check) || null,
     }));
 
     return res.status(200).json({ name, card, month: ym, charges });
