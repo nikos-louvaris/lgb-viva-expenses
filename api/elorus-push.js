@@ -73,6 +73,41 @@ function athOffMin(d) {
   return (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - d.getTime()) / 60000;
 }
 function isCron(m) { return /Viva Wallet Card/i.test(m || ""); }
+function fixDsTime(iso) { try { const w = new Date(iso); return new Date(w.getTime() - athOffMin(w) * 60000).toISOString(); } catch (e) { return iso; } }
+
+// ΙΔΙΟ dedup με το dashboard/my.js — ΚΡΙΣΙΜΟ ώστε διπλές φυσικές εγγραφές (cron/settlement)
+// της ίδιας αγοράς να ΜΗΝ δημιουργούν διπλά έξοδα στο Elorus.
+function dedupCharges(rows) {
+  const norm = (id) => String(id || "").replace(/^AUTH-/, "");
+  const isDup = (m) => /Viva Wallet Card/i.test(m || "");
+  rows = (rows || []).map((c) => isDup(c.merchant) ? { ...c, occurred_at: fixDsTime(c.occurred_at) } : { ...c });
+  const byId = new Map();
+  for (const c of rows) {
+    const k = norm(c.viva_tx_id); const ex = byId.get(k);
+    if (!ex) { byId.set(k, { ...c }); continue; }
+    const m = { ...ex };
+    if (isDup(m.merchant) && !isDup(c.merchant)) m.merchant = c.merchant;
+    if (String(c.occurred_at || "") < String(m.occurred_at || "")) m.occurred_at = c.occurred_at;
+    if (c.has_receipt) { m.has_receipt = true; m.receipt_url = c.receipt_url || m.receipt_url; }
+    if (c.project) m.project = c.project;
+    if (c.raw && c.raw.elorus_id) m.raw = c.raw; // κράτα το raw που έχει ήδη elorus_id
+    if (String(c.status) !== "PENDING_CLEAR") m.status = c.status;
+    byId.set(k, m);
+  }
+  const list = [...byId.values()];
+  const reals = list.filter((c) => !isDup(c.merchant));
+  const dups = list.filter((c) => isDup(c.merchant)).sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || "")));
+  const pool = {}; for (const r of reals) { const k = Math.abs(+r.amount).toFixed(2); (pool[k] = pool[k] || []).push(r); }
+  const used = new Set(); const kept = [];
+  for (const s of dups) {
+    const k = Math.abs(+s.amount).toFixed(2);
+    const cand = (pool[k] || []).filter((r) => !used.has(r) && String(r.occurred_at || "") <= String(s.occurred_at || "")).sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || "")));
+    if (cand[0]) { used.add(cand[0]); if (s.has_receipt && !cand[0].has_receipt) { cand[0].has_receipt = true; cand[0].receipt_url = s.receipt_url; } if (s.project && !cand[0].project) cand[0].project = s.project; } else kept.push(s);
+  }
+  const km = new Map();
+  for (const s of kept) { const k = Math.abs(+s.amount).toFixed(2); if (!km.has(k)) km.set(k, s); }
+  return [...reals, ...km.values()];
+}
 function athDate(iso) { try { return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Athens" }).format(new Date(iso)); } catch (e) { return String(iso || "").slice(0, 10); } }
 function grDate(iso) { try { return new Intl.DateTimeFormat("el-GR", { timeZone: "Europe/Athens", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(iso)); } catch (e) { return ""; } }
 
@@ -199,17 +234,25 @@ module.exports = async (req, res) => {
       const authed = !!req.headers["x-vercel-cron"] || (aw && verifyToken(aw, at)) || String(q.secret || "") === String(process.env.ELORUS_PUSH_SECRET || "__none__");
       if (!authed) return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
       const nameByWallet = await walletInfo();
-      // eligible: έχει απόδειξη + project, δεν είναι εσωτερικό-εξαίρεση, δεν έχει elorus_id
-      const rows = await sbSelect("charges", `has_receipt=eq.true&project=not.is.null&order=occurred_at.asc&limit=500`);
-      const out = [];
-      for (const c of (rows || [])) {
-        if (c.raw && c.raw.elorus_id) continue;
-        if (!c.project) continue;
-        const r = await pushCharge(c, nameByWallet);
-        out.push({ id: c.id, ...r });
+      // Πάρε τα μέλη (κάρτες), κάνε dedup ΑΝΑ κάρτα, μετά push μόνο τους representatives.
+      const EXCLUDED = new Set(["901067108914"]);
+      const ws = await wallets();
+      const members = (Array.isArray(ws) ? ws : []).filter((x) => x.hasIssuedCard && !x.isPrimary && x.friendlyName && x.friendlyName !== "ακυρο" && !EXCLUDED.has(String(x.walletId))).map((x) => String(x.walletId));
+      const out = []; let scanned = 0;
+      for (const wid of members) {
+        const raw = await sbSelect("charges", `wallet_id=eq.${wid}&order=occurred_at.desc&limit=1000`);
+        const ded = dedupCharges(raw || []);
+        for (const c of ded) {
+          if (!c.has_receipt || !c.project) continue;
+          scanned++;
+          if (c.raw && c.raw.elorus_id && c.raw.elorus_attachment) continue; // πλήρως ολοκληρωμένο
+          const r = await pushCharge(c, nameByWallet);
+          out.push({ id: c.id, ...r });
+        }
       }
       const created = out.filter((x) => x.ok && !x.skipped).length;
-      return res.status(200).json({ ok: true, scanned: (rows || []).length, created, results: out });
+      const attached = out.filter((x) => x.skipped === "attach-only").length;
+      return res.status(200).json({ ok: true, scanned, created, attached, results: out });
     }
 
     // ---- SINGLE: owner-authenticated ----
