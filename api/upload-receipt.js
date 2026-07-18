@@ -35,13 +35,14 @@ module.exports = async (req, res) => {
     let receiptUrl = cur.receipt_url || null;
 
     if (imageBase64) {
-      const m = String(imageBase64).match(/^data:(image\/\w+);base64,(.*)$/);
+      // Δέχεται εικόνα (φωτο απόδειξης) Ή αρχείο (π.χ. PDF τιμολογίου από email)
+      const m = String(imageBase64).match(/^data:([\w.+/-]+);base64,(.*)$/);
       const b64 = m ? m[2] : String(imageBase64);
       const ctype = m ? m[1] : "image/jpeg";
-      const ext = ctype.split("/")[1] || "jpg";
+      const ext = (ctype.split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
       const bytes = Buffer.from(b64, "base64");
       if (bytes.length > 8 * 1024 * 1024)
-        return res.status(413).json({ error: "Πολύ μεγάλη εικόνα (max 8MB)" });
+        return res.status(413).json({ error: "Πολύ μεγάλο αρχείο (max 8MB)" });
       const up = await sbUploadReceipt(`${w}/${chargeId}.${ext}`, bytes, ctype);
       if (!up.ok) return res.status(500).json({ error: "αποτυχία ανεβάσματος", detail: up.err });
       receiptUrl = up.url;
