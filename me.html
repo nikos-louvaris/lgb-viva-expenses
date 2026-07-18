@@ -44,8 +44,8 @@
   label.up.alt{border-style:solid;border-color:#d7dbea;color:#5b6478;font-weight:600;font-size:13px;margin-top:8px}
   a.pdfbox{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:16px;border:1.5px solid #cfd6ea;border-radius:11px;background:#f7f9ff;color:#3f3fae;font-weight:700;text-decoration:none}
   button.paste{width:100%;margin-top:8px;padding:11px;border:1px solid #d7dbea;border-radius:11px;background:#fff;color:#5b6478;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit}
-  .chkwarn{margin-top:10px;padding:9px 11px;background:#fff2df;border:1px solid #f2c98f;border-radius:9px;font-size:12.5px;color:#8a5300;line-height:1.4}
-  .card.flag{border-color:#f2c98f;box-shadow:0 0 0 2px #fbe4c0}
+  .chkwarn{margin-top:10px;padding:10px 12px;background:#fdeae6;border:1px solid #f0a595;border-radius:9px;font-size:12.5px;color:#b3260a;font-weight:600;line-height:1.4}
+  .card.flag{border-color:#e5533a;box-shadow:0 0 0 2px #f6b6a6}
   .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
   .empty{text-align:center;color:#78809a;padding:40px 12px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
@@ -81,7 +81,27 @@ const qs=new URLSearchParams(location.search);
 const W=qs.get("w"), T=qs.get("t");
 const fmt=n=>n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
 let tt;function toast(m,ms){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),ms||2600);}
-function warnIfBad(chk){if(chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"")){toast("⚠️ Προσοχή: η απόδειξη ίσως ΔΕΝ ταιριάζει με τη χρέωση — τσέκαρέ τη & άλλαξέ τη αν χρειάζεται!",5200);}}
+// Αποτέλεσμα ελέγχου απόδειξης: ✅ αποδεκτή (πράσινο toast) ή ❌ ΛΑΘΟΣ (κόκκινο παράθυρο που μπλοκάρει).
+function showVerdict(chk){
+  const bad=chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"");
+  if(!bad){ toast(chk&&chk.verdict==="OK"?"✅ Η απόδειξη ελέγχθηκε & αποδεκτή!":"✅ Αποθηκεύτηκε",2600); return; }
+  const detail = chk.verdict==="MERCHANT"
+    ? "Το κατάστημα της απόδειξης δεν ταιριάζει με τη χρέωση."
+    : ("Η απόδειξη δείχνει <b>"+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+"</b> ενώ η χρέωση είναι <b>"+fmt(chk.chargeAmount||0)+"</b>."+(chk.verdict==="BOTH"?" Και το κατάστημα δεν ταιριάζει.":""));
+  let m=document.getElementById("verdictModal");
+  if(!m){m=document.createElement("div");m.id="verdictModal";
+    m.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(120,10,10,.55);display:none;align-items:center;justify-content:center;padding:20px";
+    document.body.appendChild(m);}
+  m.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:22px;text-align:center;border-top:8px solid #d93025;box-shadow:0 12px 40px rgba(0,0,0,.3)">
+      <div style="font-size:44px;line-height:1">🚫</div>
+      <div style="font-size:19px;font-weight:800;color:#c5221f;margin:8px 0 6px">Λάθος απόδειξη!</div>
+      <div style="font-size:14px;color:#333;line-height:1.5">${detail}<br><br>Μάλλον ανέβασες <b>λάθος</b> φωτογραφία. Ανέβασε τη <b>σωστή</b> απόδειξη γι' αυτή τη χρέωση.</div>
+      <button onclick="closeVerdict()" style="margin-top:16px;width:100%;padding:13px;background:#d93025;color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">Το κατάλαβα — θα ανεβάσω τη σωστή</button>
+    </div>`;
+  m.style.display="flex";
+}
+function closeVerdict(){const m=document.getElementById("verdictModal");if(m)m.style.display="none";}
+const warnIfBad=showVerdict; // συμβατότητα
 function fdate(iso){try{const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));const g=t=>(p.find(x=>x.type===t)||{}).value||"00";return g("day")+"/"+g("month")+" "+g("hour")+":"+g("minute");}catch(e){return "";}}
 
 let ALLCH=[], SM=null, NAME="", CARD="", SHOW_DONE=false, ACTIVE=null;
@@ -94,7 +114,7 @@ document.addEventListener("paste",async e=>{
   if(!id){const pend=ALLCH.filter(c=>String(c.occurred_at||"").slice(0,7)===SM&&!(c.has_receipt&&c.project));if(pend.length===1)id=pend[0].id;}
   if(!id){toast("Πάτησε πρώτα πάνω στη χρέωση, μετά κάνε paste (Ctrl/⌘+V)");return;}
   const card=document.getElementById("c-"+id);
-  try{if(card)card.classList.add("busy");toast("Ανεβαίνει το screenshot…");
+  try{if(card)card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω το screenshot… περίμενε",9000);
     const dataUrl=await resize(blob);
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
@@ -177,7 +197,7 @@ function cardHtml(c){
     : "";
   const chk=c.receipt_check;
   const chkBad=chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"");
-  const chkHtml=chkBad?`<div class="chkwarn">⚠️ Η απόδειξη ${chk.verdict==="MERCHANT"?"δεν φαίνεται από αυτό το κατάστημα":("δείχνει "+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+" ενώ η χρέωση είναι "+fmt(c.amount))} — μήπως ανέβασες λάθος; <b>Άλλαξέ τη.</b></div>`:"";
+  const chkHtml=chkBad?`<div class="chkwarn">🚫 <b>Λάθος απόδειξη:</b> ${chk.verdict==="MERCHANT"?"δεν φαίνεται από αυτό το κατάστημα":("δείχνει "+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+" ενώ η χρέωση είναι "+fmt(c.amount))} — ανέβασε τη <b>σωστή</b>.</div>`:"";
   return `<div class="card${chkBad?" flag":""}" id="c-${c.id}" onclick="ACTIVE=${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
     ${chkHtml}
@@ -203,7 +223,7 @@ function resize(file){return new Promise(res=>{
 });}
 async function upload(id,input){
   const f=input.files&&input.files[0];if(!f)return;
-  const card=document.getElementById("c-"+id);card.classList.add("busy");toast("Ανεβαίνει…");
+  const card=document.getElementById("c-"+id);card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω την απόδειξη… περίμενε",9000);
   try{
     const dataUrl=await resize(f);
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -222,10 +242,10 @@ async function attachFile(id,input){
     let dataUrl;
     if(isPdf){
       if(f.size>3*1024*1024){toast("⚠️ Πολύ μεγάλο PDF (max ~3MB). Συμπίεσέ το.");input.value="";return;}
-      card.classList.add("busy");toast("Ανεβαίνει το αρχείο…");
+      card.classList.add("busy");toast("⏳ Ανεβαίνει το αρχείο… περίμενε",9000);
       dataUrl=await fileToDataURL(f);            // PDF → όπως είναι
     }else{
-      card.classList.add("busy");toast("Ανεβαίνει…");
+      card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω την απόδειξη… περίμενε",9000);
       dataUrl=await resize(f);                   // εικόνα/screenshot → σμίκρυνση (χωρίς όριο μεγέθους)
     }
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -243,7 +263,7 @@ async function pasteShot(id){
     let blob=null;
     for(const it of items){const ty=it.types.find(t=>t.startsWith("image/"));if(ty){blob=await it.getType(ty);break;}}
     if(!blob){toast("Δεν βρήκα εικόνα στο πρόχειρο. Κάνε print screen και ξαναπάτα.");return;}
-    card.classList.add("busy");toast("Ανεβαίνει το screenshot…");
+    card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω το screenshot… περίμενε",9000);
     const dataUrl=await resize(blob);
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
