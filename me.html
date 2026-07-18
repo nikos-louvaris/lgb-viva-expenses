@@ -7,6 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Οι χρεώσεις μου — Let's Go Bananas</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
   :root{--brand:#4f46e5;--ok:#0f9d58;--bad:#d93025;--warn:#e8850c;--line:#e6e8f0;--ink:#1a1a2e;--soft:#f6f7fb}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -100,6 +101,12 @@ function verdictModal(color,bg,icon,title,body,btn){
 }
 function showVerdict(chk){
   const v=chk&&chk.verdict;
+  if(v==="UNCONFIRMED"){
+    verdictModal("#e8850c","rgba(120,70,0,.5)","🧐","Δεν επιβεβαιώθηκε το ποσό",
+      "Δεν βρήκα το ποσό <b>"+fmt(chk.chargeAmount||0)+"</b> πάνω στην απόδειξη.<br><br>Σιγουρέψου ότι ανέβασες τη <b>σωστή</b> απόδειξη και ότι φαίνεται <b>καθαρά το τελικό ποσό</b>. Αν όντως είναι η σωστή, απλώς αγνόησέ το.",
+      "Εντάξει");
+    return;
+  }
   if(v==="UNREADABLE"){
     verdictModal("#e8850c","rgba(120,70,0,.5)","📷","Δεν διαβάζεται καλά",
       "Η φωτογραφία είναι <b>θολή/κομμένη</b> ή δεν φαίνεται το <b>τελικό ποσό</b>.<br><br>Βγάλ' την <b>ξανά καθαρή & ολόκληρη</b> — ή, αν η απόδειξη έχει ξεθωριάσει, <b>γράψε το τελικό ποσό με στυλό</b> πάνω της και ξαναφωτογράφισέ τη.",
@@ -131,7 +138,8 @@ document.addEventListener("paste",async e=>{
   const card=document.getElementById("c-"+id);
   try{if(card)card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω το screenshot… περίμενε",9000);
     const dataUrl=await resize(blob);
-    const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
+    const check=await ocrFindAmount(dataUrl,amtOf(id));
+    const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl,check})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
     toast("✅ Το screenshot αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
   }catch(err){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");if(card)card.classList.remove("busy");}
@@ -211,8 +219,9 @@ function cardHtml(c){
       : `<a href="${c.receipt_url}" target="_blank" rel="noopener"><img class="thumb" src="${c.receipt_url}" title="Πάτησε για μεγάλη εικόνα"></a><a class="dl" href="${dl}">🔍 Δες σε μεγάλη ανάλυση / κατέβασέ την</a>`)
     : "";
   const chk=c.receipt_check; const cv=chk&&chk.verdict;
-  const chkMis=/^(AMOUNT|MERCHANT|BOTH)$/.test(cv||""); const chkQ=cv==="UNREADABLE"; const chkBad=chkMis||chkQ;
+  const chkMis=/^(AMOUNT|MERCHANT|BOTH)$/.test(cv||""); const chkQ=cv==="UNREADABLE"||cv==="UNCONFIRMED"; const chkBad=chkMis||chkQ;
   const chkHtml=chkMis?`<div class="chkwarn">🚫 <b>Λάθος απόδειξη:</b> ${cv==="MERCHANT"?"δεν φαίνεται από αυτό το κατάστημα":("δείχνει "+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+" ενώ η χρέωση είναι "+fmt(c.amount))} — ανέβασε τη <b>σωστή</b>.</div>`
+    :cv==="UNCONFIRMED"?`<div class="chkwarn q">🧐 Δεν βρέθηκε το ποσό <b>${fmt(c.amount)}</b> πάνω στην απόδειξη — σιγουρέψου ότι είναι η <b>σωστή</b> & καθαρή.</div>`
     :chkQ?`<div class="chkwarn q">📷 <b>Δεν διαβάζεται καλά</b> (θολή/κομμένη ή δεν φαίνεται το ποσό). Βγάλ' την ξανά καθαρή — ή γράψε το τελικό ποσό με <b>στυλό</b>.</div>`:"";
   return `<div class="card${chkMis?" flag":chkQ?" flagq":""}" id="c-${c.id}" onclick="ACTIVE=${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
@@ -237,15 +246,31 @@ function resize(file){return new Promise(res=>{
   };img.src=rd.result;};
   rd.readAsDataURL(file);
 });}
+// ΔΩΡΕΑΝ έλεγχος: τοπικό OCR (Tesseract) στη συσκευή — ψάχνει αν το ποσό της χρέωσης εμφανίζεται στην απόδειξη.
+async function ocrFindAmount(dataUrl,amount){
+  try{
+    if(typeof Tesseract==="undefined")return null;
+    const res=await Tesseract.recognize(dataUrl,"eng");
+    const text=((res&&res.data&&res.data.text)||"");
+    if(text.replace(/[^0-9]/g,"").length<3)return {verdict:"UNREADABLE",src:"ocr"};
+    const a=Math.abs(+amount||0); if(!a)return {verdict:"OK",src:"ocr"};
+    const dot=a.toFixed(2), comma=dot.replace(".",","), cents=String(Math.round(a*100));
+    const compact=text.replace(/[.,\s]/g,"");
+    const found=text.includes(dot)||text.includes(comma)||compact.includes(cents);
+    return {verdict: found?"OK":"UNCONFIRMED", chargeAmount:a, src:"ocr"};
+  }catch(e){return null;}
+}
+function amtOf(id){const c=ALLCH.find(x=>x.id===id);return c?c.amount:0;}
 async function upload(id,input){
   const f=input.files&&input.files[0];if(!f)return;
-  const card=document.getElementById("c-"+id);card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω την απόδειξη… περίμενε",9000);
+  const card=document.getElementById("c-"+id);card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω το ποσό… περίμενε",12000);
   try{
     const dataUrl=await resize(f);
+    const check=await ocrFindAmount(dataUrl,amtOf(id));
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
+      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl,check})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
-    toast("✅ Η απόδειξη αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
+    toast("✅ Η απόδειξη αποθηκεύτηκε!");await refresh();showVerdict(d.receipt_check||check);
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
 }
 // Επισύναψη αρχείου (π.χ. PDF τιμολογίου από email) — ΧΩΡΙΣ σμίκρυνση, το ανεβάζει όπως είναι.
@@ -255,19 +280,20 @@ async function attachFile(id,input){
   const isPdf=f.type==="application/pdf"||/\.pdf$/i.test(f.name||"");
   const card=document.getElementById("c-"+id);
   try{
-    let dataUrl;
+    let dataUrl, check=null;
     if(isPdf){
       if(f.size>3*1024*1024){toast("⚠️ Πολύ μεγάλο PDF (max ~3MB). Συμπίεσέ το.");input.value="";return;}
       card.classList.add("busy");toast("⏳ Ανεβαίνει το αρχείο… περίμενε",9000);
-      dataUrl=await fileToDataURL(f);            // PDF → όπως είναι
+      dataUrl=await fileToDataURL(f);            // PDF → όπως είναι (χωρίς OCR)
     }else{
-      card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω την απόδειξη… περίμενε",9000);
-      dataUrl=await resize(f);                   // εικόνα/screenshot → σμίκρυνση (χωρίς όριο μεγέθους)
+      card.classList.add("busy");toast("⏳ Ανεβαίνει & ελέγχω το ποσό… περίμενε",12000);
+      dataUrl=await resize(f);                   // εικόνα/screenshot → σμίκρυνση
+      check=await ocrFindAmount(dataUrl,amtOf(id));
     }
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
+      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl,check})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
-    toast("✅ Αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
+    toast("✅ Αποθηκεύτηκε!");await refresh();showVerdict(d.receipt_check||check);
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");if(card)card.classList.remove("busy");}
 }
 // Επικόλληση screenshot από το πρόχειρο (print screen → clipboard). Το ανεβάζει σαν εικόνα.
