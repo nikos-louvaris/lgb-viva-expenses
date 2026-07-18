@@ -40,6 +40,8 @@
   select{width:100%;margin-top:9px;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:#fff}
   .thumb{margin-top:10px;width:100%;max-height:190px;object-fit:cover;border-radius:10px;border:1px solid var(--line);cursor:zoom-in}
   a.dl{display:block;text-align:center;margin-top:6px;font-size:12.5px;font-weight:700;color:var(--brand);text-decoration:none}
+  label.up.alt{border-style:solid;border-color:#d7dbea;color:#5b6478;font-weight:600;font-size:13px;margin-top:8px}
+  a.pdfbox{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:16px;border:1.5px solid #cfd6ea;border-radius:11px;background:#f7f9ff;color:#3f3fae;font-weight:700;text-decoration:none}
   .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
   .empty{text-align:center;color:#78809a;padding:40px 12px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
@@ -144,14 +146,22 @@ function pill(c){
 }
 function cardHtml(c){
   const opts='<option value="">Διάλεξε project…</option>'+ALLP().map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("")+'<option value="__NEW__">➕ Άλλο (γράψε νέο)…</option>';
-  const dl=c.receipt_url?c.receipt_url+(c.receipt_url.includes("?")?"&":"?")+"download=apodeixi_"+c.id+".jpg":"";
+  const isPdf=/\.pdf(\?|$)/i.test(c.receipt_url||"");
+  const ext=isPdf?"pdf":"jpg";
+  const dl=c.receipt_url?c.receipt_url+(c.receipt_url.includes("?")?"&":"?")+"download=apodeixi_"+c.id+"."+ext:"";
+  const preview=c.has_receipt&&c.receipt_url
+    ? (isPdf
+      ? `<a class="pdfbox" href="${c.receipt_url}" target="_blank" rel="noopener">📄 Επισυναπτόμενο αρχείο (PDF) — πάτησε για άνοιγμα</a><a class="dl" href="${dl}">⬇ Κατέβασέ το</a>`
+      : `<a href="${c.receipt_url}" target="_blank" rel="noopener"><img class="thumb" src="${c.receipt_url}" title="Πάτησε για μεγάλη εικόνα"></a><a class="dl" href="${dl}">🔍 Δες σε μεγάλη ανάλυση / κατέβασέ την</a>`)
+    : "";
   return `<div class="card" id="c-${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
-    ${c.has_receipt&&c.receipt_url?`<a href="${c.receipt_url}" target="_blank" rel="noopener"><img class="thumb" src="${c.receipt_url}" title="Πάτησε για μεγάλη εικόνα"></a>
-    <a class="dl" href="${dl}">🔍 Δες σε μεγάλη ανάλυση / κατέβασέ την</a>`:""}
-    <label class="up ${c.has_receipt?"done":""}" for="f-${c.id}" onclick="toast('📸 Καθαρή & ολόκληρη — να φαίνεται το τελικό ποσό, όχι θολή!')">${c.has_receipt?"✓ Αποθηκεύτηκε — πάτησε για να την αλλάξεις":"📷 Ανέβασε φωτογραφία απόδειξης"}</label>
+    ${preview}
+    <label class="up ${c.has_receipt?"done":""}" for="f-${c.id}" onclick="toast('📸 Καθαρή & ολόκληρη — να φαίνεται το τελικό ποσό, όχι θολή!')">${c.has_receipt?"✓ Αποθηκεύτηκε — πάτησε για να το αλλάξεις":"📷 Ανέβασε φωτογραφία απόδειξης"}</label>
     <div class="uphint">📸 καθαρή · ολόκληρη · ίσια · να φαίνεται το τελικό ποσό · όχι θολή/κομμένη</div>
     <input type="file" id="f-${c.id}" accept="image/*" capture="environment" onchange="upload(${c.id},this)">
+    <label class="up alt" for="af-${c.id}">📎 …ή επισύναψε αρχείο (PDF τιμολογίου από email)</label>
+    <input type="file" id="af-${c.id}" accept="application/pdf,image/*" onchange="attachFile(${c.id},this)">
     <select onchange="setProject(${c.id},this.value)">${opts}</select>
   </div>`;
 }
@@ -177,6 +187,20 @@ async function upload(id,input){
       body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
     toast("✅ Η απόδειξη αποθηκεύτηκε!");await refresh();
+  }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
+}
+// Επισύναψη αρχείου (π.χ. PDF τιμολογίου από email) — ΧΩΡΙΣ σμίκρυνση, το ανεβάζει όπως είναι.
+function fileToDataURL(file){return new Promise((res,rej)=>{const rd=new FileReader();rd.onload=()=>res(rd.result);rd.onerror=rej;rd.readAsDataURL(file);});}
+async function attachFile(id,input){
+  const f=input.files&&input.files[0];if(!f)return;
+  if(f.size>3*1024*1024){toast("⚠️ Πολύ μεγάλο αρχείο (max ~3MB). Συμπίεσέ το ή ανέβασέ το σαν φωτο.");input.value="";return;}
+  const card=document.getElementById("c-"+id);card.classList.add("busy");toast("Ανεβαίνει το αρχείο…");
+  try{
+    const dataUrl=await fileToDataURL(f);
+    const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
+    toast("✅ Το αρχείο επισυνάφθηκε!");await refresh();
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
 }
 async function setProject(id,val){

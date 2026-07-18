@@ -645,9 +645,13 @@ function printPackage(kind,id){
   const withRec=list.filter(c=>c.receipt).length;
   // Παράρτημα: κάθε απόδειξη σε ΜΕΓΑΛΟ μέγεθος, μία-μία, για αρχείο/εκτύπωση/έλεγχο της λογιστικής.
   const appendix=list.filter(c=>c.receipt&&c.receiptUrl).map(c=>{const p=person(c.personId);
+    const isPdf=/\.pdf(\?|$)/i.test(c.receiptUrl||"");
+    const media=isPdf
+      ? `<div style="font-size:13px">📄 Επισυναπτόμενο PDF: <a href="${c.receiptUrl}">${c.receiptUrl}</a> <span style="color:#888">(περιλαμβάνεται στο ZIP)</span></div>`
+      : `<img src="${c.receiptUrl}" class="rc-img">`;
     return `<div class="rc">
       <div class="rc-h">${fmt(c.amount)} · ${c.merchant} · ${c.dm||""} ${c.hm||""} · ${isP?(c.project||"—"):(p?p.name:"—")}</div>
-      <img src="${c.receiptUrl}" class="rc-img">
+      ${media}
     </div>`;}).join("");
   const html=`<!doctype html><html lang="el"><head><meta charset="utf-8"><title>${title} — ${monthLbl}</title>
     <style>body{font-family:Arial,sans-serif;color:#1a1a2e;padding:24px}h1{font-size:20px;margin:0}
@@ -680,9 +684,12 @@ function receiptGallery(list){
     running+=c.amount;
     const p=person(c.personId);
     const cap=`${p?p.name:""} · ${c.merchant} · ${fmt(c.amount)}`.replace(/"/g,"'");
-    const dl=c.receiptUrl?c.receiptUrl+(c.receiptUrl.includes("?")?"&":"?")+"download=apodeixi_"+encodeURIComponent(cap.replace(/[^0-9A-Za-zΑ-Ωα-ω.\-]+/g,"_"))+".jpg":"";
+    const isPdf=/\.pdf(\?|$)/i.test(c.receiptUrl||"");
+    const dl=c.receiptUrl?c.receiptUrl+(c.receiptUrl.includes("?")?"&":"?")+"download=apodeixi_"+encodeURIComponent(cap.replace(/[^0-9A-Za-zΑ-Ωα-ω.\-]+/g,"_"))+(isPdf?".pdf":".jpg"):"";
     const thumb=(c.receipt&&c.receiptUrl)
-      ? `<img src="${c.receiptUrl}" data-u="${c.receiptUrl}" data-c="${cap}" onclick="openReceipt(this.dataset.u,this.dataset.c)" title="Πάτησε για μεγάλη ανάλυση" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in" />`
+      ? (isPdf
+        ? `<div data-u="${c.receiptUrl}" data-c="${cap}" onclick="openReceipt(this.dataset.u,this.dataset.c)" title="PDF — πάτησε για άνοιγμα" style="height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#eef1fb;border-radius:8px 8px 0 0;color:#4f46e5;font-weight:800;cursor:zoom-in"><span style="font-size:30px">📄</span><span style="font-size:12px">PDF</span></div>`
+        : `<img src="${c.receiptUrl}" data-u="${c.receiptUrl}" data-c="${cap}" onclick="openReceipt(this.dataset.u,this.dataset.c)" title="Πάτησε για μεγάλη ανάλυση" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in" />`)
       : `<div style="height:120px;display:flex;align-items:center;justify-content:center;background:#f1f3f9;border-radius:8px 8px 0 0;color:#98a0b3;font-size:26px">${c.receipt?"📄":"—"}</div>`;
     return `<div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">
       ${thumb}
@@ -710,15 +717,19 @@ function openReceipt(url,cap){
     lb.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(10,10,20,.93);display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:14px";
     lb.onclick=e=>{if(e.target===lb)closeReceipt();};
     document.body.appendChild(lb);}
-  const fn=("apodeixi_"+(cap||"")).replace(/[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋ.\-]+/g,"_")+".jpg";
+  const isPdf=/\.pdf(\?|$)/i.test(url);
+  const fn=("apodeixi_"+(cap||"")).replace(/[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋ.\-]+/g,"_")+(isPdf?".pdf":".jpg");
   const dl=url+(url.includes("?")?"&":"?")+"download="+encodeURIComponent(fn);
+  const media=isPdf
+    ? `<iframe src="${url}" style="width:96vw;height:82vh;border:none;border-radius:8px;background:#fff"></iframe>`
+    : `<img src="${url}" style="max-width:96vw;max-height:82vh;object-fit:contain;border-radius:8px;background:#fff">`;
   lb.innerHTML=`<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;color:#fff">
-      <span style="font-weight:700;font-size:14px;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cap||"Απόδειξη"}</span>
+      <span style="font-weight:700;font-size:14px;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cap||"Απόδειξη"}${isPdf?" · PDF":""}</span>
       <a href="${dl}" style="background:#4f46e5;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">⬇ Κατέβασε</a>
       <a href="${url}" target="_blank" rel="noopener" style="background:#374151;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">↗ Νέα καρτέλα</a>
       <button onclick="closeReceipt()" style="background:#fff;color:#111;padding:8px 14px;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer">✕ Κλείσε</button>
     </div>
-    <img src="${url}" style="max-width:96vw;max-height:82vh;object-fit:contain;border-radius:8px;background:#fff">`;
+    ${media}`;
   lb.style.display="flex";
 }
 function closeReceipt(){const lb=document.getElementById("lightbox");if(lb)lb.style.display="none";}
@@ -746,7 +757,8 @@ async function downloadReceiptsZip(kind,id,btn){
     let idx=0,okc=0;
     for(const c of list){idx++;const p=person(c.personId);
       const dd=(c.dm||"").replace(/\//g,"-"),hh=(c.hm||"").replace(/:/g,"");
-      const fname=String(idx).padStart(2,"0")+"_"+dd+"_"+hh+"_"+safe(c.merchant)+"_"+c.amount.toFixed(2)+"e.jpg";
+      const rext=/\.pdf(\?|$)/i.test(c.receiptUrl||"")?"pdf":"jpg";
+      const fname=String(idx).padStart(2,"0")+"_"+dd+"_"+hh+"_"+safe(c.merchant)+"_"+c.amount.toFixed(2)+"e."+rext;
       let has="ΟΧΙ — ΛΕΙΠΕΙ",file="";
       if(c.receipt&&c.receiptUrl){
         try{const r=await fetch(c.receiptUrl);const b=await r.blob();zip.file(fname,b);has="ΝΑΙ";file=fname;okc++;}
