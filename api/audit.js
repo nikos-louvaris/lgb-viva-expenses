@@ -115,8 +115,10 @@ module.exports = async (req, res) => {
         const k = Math.abs(+c.amount).toFixed(2);
         const cands = (vivaTimes[w] || []).filter((v) => v.amt === k);
         if (cands.length) {
-          const best = Math.min(...cands.map((v) => Math.abs(new Date(v.t).getTime() - oc)));
-          if (best > 15 * 60000) issues.push({ type: "WRONG_TIME", amount: +k, detail: `Ώρα αποκλίνει ${Math.round(best / 60000)}' από τη Viva` });
+          // Η Viva μπερδεύει UTC/ώρα-Αθήνας ανά τύπο εγγραφής, άρα απόκλιση ~0 ή ~ακέραιο ζώνης (60/120/180') = ΘΟΡΥΒΟΣ, όχι λάθος.
+          const best = Math.min(...cands.map((v) => Math.abs(new Date(v.t).getTime() - oc))) / 60000;
+          const dev = Math.min(best, Math.abs(best - 60), Math.abs(best - 120), Math.abs(best - 180));
+          if (dev > 20) issues.push({ type: "WRONG_TIME", amount: +k, detail: `Ώρα αποκλίνει ${Math.round(best)}' από τη Viva (πέρα από ζώνη)` });
         }
       }
       if (issues.length) totalIssues += issues.length;
