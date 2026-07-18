@@ -10,6 +10,15 @@ const ORG = process.env.ELORUS_ORG_ID || "2802338946946696842";
 const TRACKING_ID = "2816025548696847940"; // tracking category «ΕΞΟΔΟΛΟΓΙΑ»
 const INTERNAL = new Set(["LGB HOME", "LBG HOME"]);
 
+// Σωστά ελληνικά ονόματα ανά κάρτα (η Viva δίνει λατινικά friendlyName).
+const NAMES = {
+  "448933314799": "Άγγελος Χρονόπουλος", "324887741089": "Ανδρέας Κολυγλιάτης", "566240519800": "Κώστας Κρυωνάς",
+  "282541651501": "Ιωάννα Σκούρα", "657494082292": "Λουκία Μπαλτζή", "910827445981": "Άντα Μπαϊρακτάρη",
+  "975269802823": "Αίας Παρασκευόπουλος", "405838582045": "Ζωή Ηγουμενίδη", "389933252655": "Μαριλού Θηβαίου",
+  "968554634120": "Μαριλένα Σιταροπούλου", "577335556525": "Αναστασία Κοβάνη", "990263759336": "Δήμητρα Λάκη",
+  "243763678466": "Ντόριαν Γκουτζέλας",
+};
+
 // --- κατηγορίες εξόδων Elorus (id) ---
 const CAT = {
   ADS: "2816023551763547146",              // Ads
@@ -132,7 +141,7 @@ async function walletInfo() {
     for (const w of (Array.isArray(ws) ? ws : [])) {
       const fn = w.friendlyName || "";
       const m = fn.match(/^(.*?)\s*(\d{4})$/);
-      map[String(w.walletId)] = { name: (m ? m[1] : fn).trim(), card: m ? m[2] : "" };
+      map[String(w.walletId)] = { name: NAMES[String(w.walletId)] || (m ? m[1] : fn).trim(), card: m ? m[2] : "" };
     }
   } catch (e) {}
   return map;
