@@ -69,7 +69,7 @@ module.exports = async (req, res) => {
   try {
     let body = req.body;
     if (typeof body === "string") body = JSON.parse(body || "{}");
-    const { w, t, chargeId, imageBase64, project } = body || {};
+    const { w, t, chargeId, imageBase64, project, check } = body || {};
     if (!w || !verifyToken(String(w), String(t || "")))
       return res.status(403).json({ error: "Άκυρο link" });
     if (!chargeId) return res.status(400).json({ error: "λείπει το chargeId" });
@@ -98,8 +98,8 @@ module.exports = async (req, res) => {
       receiptUrl = up.url;
       patch.has_receipt = true;
       patch.receipt_url = receiptUrl;
-      // «Δεύτερο μάτι»: έλεγχος ότι η απόδειξη ταιριάζει με τη χρέωση (ποσό + κατάστημα)
-      const chk = await validateReceipt(imageBase64, cur.amount, cur.merchant);
+      // «Δεύτερο μάτι» (ΔΩΡΕΑΝ): προτίμησε το τοπικό OCR του browser (check). Αν λείπει & υπάρχει AI-κλειδί, fallback.
+      const chk = (check && check.verdict) ? check : await validateReceipt(imageBase64, cur.amount, cur.merchant);
       patch.raw = Object.assign({}, cur.raw || {}, { receipt_check: chk });
     }
     if (project !== undefined) patch.project = project || null;
