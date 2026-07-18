@@ -70,52 +70,61 @@ function cleanMerchant(raw) {
   return s;
 }
 
-// Καθαρισμός διπλοεγγραφών: η ίδια συναλλαγή μπορεί να έχει δέσμευση (webhook + sync) + εκκαθάριση.
-//  1) Ένωσε δεσμεύσεις της ΙΔΙΑΣ συναλλαγής (κανονικό id vs "AUTH-"+id) → μία εγγραφή.
-//  2) Αν μια αγορά εκκαθαρίστηκε, κράτα την οριστική και ρίξε την αντίστοιχη δέσμευση (ίδιο ποσό).
+// Η Viva στέλνει ασυνεπείς ώρες: το webhook δίνει σωστό UTC, ενώ ο cron (Data Services)
+// δίνει ΩΡΑ ΑΘΗΝΑΣ λαθεμένα σφραγισμένη ως +00:00. Οι cron-εγγραφές αναγνωρίζονται από το
+// μαγαζί "…Viva Wallet Card". Εδώ επαναφέρουμε το σωστό instant (ψηφία = ώρα Αθήνας).
+function athOffMin(d) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Athens", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {});
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return (asUTC - d.getTime()) / 60000;
+}
+function fixDsTime(iso) { try { const w = new Date(iso); return new Date(w.getTime() - athOffMin(w) * 60000).toISOString(); } catch (e) { return iso; } }
+
+// Καθαρισμός διπλοεγγραφών + διόρθωση ωρών.
 function dedupCharges(rows) {
   const norm = (id) => String(id || "").replace(/^AUTH-/, "");
-  const isDesm = (m) => /^Δέσμευση/.test(m || "");
-  // 1) Ένωσε γραμμές της ΙΔΙΑΣ συναλλαγής (δέσμευση από webhook + από sync). Κράτα πραγματικό μαγαζί & ΝΩΡΙΤΕΡΗ ώρα (=στιγμή αγοράς).
+  const isDup = (m) => /Viva Wallet Card/i.test(m || "");   // εγγραφή από cron (δέσμευση/εκκαθάριση)
+  // 0) Διόρθωσε τις ώρες των cron-εγγραφών
+  rows = (rows || []).map((c) => isDup(c.merchant) ? { ...c, occurred_at: fixDsTime(c.occurred_at) } : { ...c });
+  // 1) Ένωσε την ΙΔΙΑ συναλλαγή (webhook + cron, ίδιο id χωρίς "AUTH-"). Κράτα πραγματικό μαγαζί, νωρίτερη ώρα, απόδειξη/project.
   const byId = new Map();
   for (const c of rows) {
-    const k = norm(c.viva_tx_id);
-    const ex = byId.get(k);
+    const k = norm(c.viva_tx_id); const ex = byId.get(k);
     if (!ex) { byId.set(k, { ...c }); continue; }
     const m = { ...ex };
-    if (isDesm(m.merchant) && !isDesm(c.merchant)) m.merchant = c.merchant;         // πραγματικό όνομα μαγαζιού
-    if (String(c.occurred_at || "") < String(m.occurred_at || "")) m.occurred_at = c.occurred_at; // νωρίτερη = χτύπημα
+    if (isDup(m.merchant) && !isDup(c.merchant)) m.merchant = c.merchant;
+    if (String(c.occurred_at || "") < String(m.occurred_at || "")) m.occurred_at = c.occurred_at;
     if (c.has_receipt) { m.has_receipt = true; m.receipt_url = c.receipt_url || m.receipt_url; }
     if (c.project) m.project = c.project;
-    if (ex.status !== "PENDING_CLEAR" || c.status !== "PENDING_CLEAR")
-      m.status = ex.status === "PENDING_CLEAR" ? c.status : ex.status;
+    if (String(c.status) !== "PENDING_CLEAR") m.status = c.status;
     byId.set(k, m);
   }
   const list = [...byId.values()];
-  // 2) Ταίριασε ΔΕΣΜΕΥΣΗ (χτύπημα) με ΕΚΚΑΘΑΡΙΣΗ (ίδιο ποσό). Κράτα τη ΔΕΣΜΕΥΣΗ (σωστή ώρα+μαγαζί), σημείωσέ την εκκαθαρισμένη, ρίξε την εκκαθάριση.
-  const auths = list.filter((c) => c.status === "PENDING_CLEAR");
-  const settls = list.filter((c) => c.status !== "PENDING_CLEAR");
-  const pool = {};
-  for (const a of auths) { const k = Math.abs(+a.amount).toFixed(2); (pool[k] = pool[k] || []).push(a); }
-  const keptSettls = [];
-  for (const s of settls) {
+  const reals = list.filter((c) => !isDup(c.merchant));
+  const dups = list.filter((c) => isDup(c.merchant)).sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || "")));
+  // 2) Ρίξε κάθε cron-εκκαθάριση πάνω σε ΠΡΟΓΕΝΕΣΤΕΡΗ πραγματική εγγραφή ίδιου ποσού (=ίδια αγορά).
+  const pool = {}; for (const r of reals) { const k = Math.abs(+r.amount).toFixed(2); (pool[k] = pool[k] || []).push(r); }
+  const used = new Set(); const kept = [];
+  for (const s of dups) {
     const k = Math.abs(+s.amount).toFixed(2);
-    if (pool[k] && pool[k].length) {
-      const a = pool[k].shift();
-      a._cleared = true;                                     // η αγορά εκκαθαρίστηκε — αλλά κρατάμε την ώρα του χτυπήματος
-      if (s.has_receipt) { a.has_receipt = true; a.receipt_url = s.receipt_url || a.receipt_url; }
-      if (s.project) a.project = s.project;
-    } else {
-      keptSettls.push(s);                                    // χωρίς δέσμευση → κράτα την εκκαθάριση
-    }
+    const cand = (pool[k] || []).filter((r) => !used.has(r) && String(r.occurred_at || "") <= String(s.occurred_at || "")).sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || "")));
+    const r = cand[0];
+    if (r) {
+      used.add(r);
+      if (s.has_receipt && !r.has_receipt) { r.has_receipt = true; r.receipt_url = s.receipt_url; }
+      if (s.project && !r.project) r.project = s.project;
+      if (r.status === "PENDING_CLEAR") r.status = (r.has_receipt && r.project) ? "COMPLETE" : "MISSING_ALL";
+    } else kept.push(s);
   }
-  const out = [];
-  for (const a of auths) {
-    if (a._cleared) a.status = (a.has_receipt && a.project) ? "COMPLETE" : "MISSING_ALL"; // εκκαθαρισμένη, όχι ⏳
-    out.push(a);
+  // 3) Ένωσε ορφανές cron-εγγραφές ίδιου ποσού (δέσμευση + εκκαθάριση χωρίς webhook auth).
+  const kept2 = new Map();
+  for (const s of kept) {
+    const k = Math.abs(+s.amount).toFixed(2); const ex = kept2.get(k);
+    if (!ex) { kept2.set(k, s); continue; }
+    if (s.has_receipt && !ex.has_receipt) { ex.has_receipt = true; ex.receipt_url = s.receipt_url; }
+    if (s.project && !ex.project) ex.project = s.project;
   }
-  for (const s of keptSettls) out.push(s);
-  return out;
+  return [...reals, ...kept2.values()];
 }
 
 function baseUrl(req) {
