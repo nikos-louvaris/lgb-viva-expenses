@@ -16,7 +16,8 @@ async function eg(path) {
 
 module.exports = async (req, res) => {
   try {
-    const out = { org: ORG };
+    const k = process.env.ELORUS_API_KEY || "";
+    const out = { org: ORG, keyPresent: !!k, keyLen: k.length };
     const cats = await eg("expensecategories/?page_size=100");
     out.expensecategories = (cats.body && cats.body.results)
       ? cats.body.results.map((c) => ({ id: c.id, name: c.name }))
