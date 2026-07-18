@@ -231,7 +231,9 @@ module.exports = async (req, res) => {
     // Auth: Vercel cron header Ή έγκυρο member token (w,t) — το χρησιμοποιεί το κουμπί & το daily task.
     if (q.all || body.all) {
       const aw = String(body.w || q.w || ""), at = String(body.t || q.t || "");
-      const authed = !!req.headers["x-vercel-cron"] || (aw && verifyToken(aw, at)) || String(q.secret || "") === String(process.env.ELORUS_PUSH_SECRET || "__none__");
+      const ua = String(req.headers["user-agent"] || "");
+      const isVercelCron = !!req.headers["x-vercel-cron"] || /vercel-cron/i.test(ua);
+      const authed = isVercelCron || (aw && verifyToken(aw, at)) || String(q.secret || "") === String(process.env.ELORUS_PUSH_SECRET || "__none__");
       if (!authed) return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
       const nameByWallet = await walletInfo();
       // Πάρε τα μέλη (κάρτες), κάνε dedup ΑΝΑ κάρτα, μετά push μόνο τους representatives.
