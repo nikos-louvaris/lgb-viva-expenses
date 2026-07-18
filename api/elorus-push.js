@@ -96,11 +96,41 @@ async function elorus(method, path, body) {
   return { status: r.status, body: b };
 }
 
+// Επισυνάπτει το αρχείο απόδειξης στο έξοδο (Elorus API v1.2, multipart/form-data).
+async function attachReceipt(expenseId, receiptUrl, title) {
+  try {
+    if (!receiptUrl) return { ok: false, why: "no-url" };
+    const key = process.env.ELORUS_API_KEY;
+    const rf = await fetch(receiptUrl);
+    if (!rf.ok) return { ok: false, why: `fetch ${rf.status}` };
+    const ct = (rf.headers.get("content-type") || "image/jpeg").split(";")[0];
+    const buf = Buffer.from(await rf.arrayBuffer());
+    const ext = (ct.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
+    const form = new FormData();
+    form.append("title", String(title || "Απόδειξη").slice(0, 120));
+    form.append("file", new Blob([buf], { type: ct }), `apodeixi.${ext}`);
+    const r = await fetch(`https://api.elorus.com/v1.2/expenses/${expenseId}/attachments/`, {
+      method: "POST",
+      headers: { Authorization: `Token ${key}`, "X-Elorus-Organization": ORG }, // ΟΧΙ Content-Type — το βάζει το FormData με boundary
+      body: form,
+    });
+    const txt = await r.text(); let b; try { b = JSON.parse(txt); } catch (e) { b = txt.slice(0, 200); }
+    if (r.status !== 201 && r.status !== 200) return { ok: false, status: r.status, detail: b };
+    return { ok: true, id: b && b.id };
+  } catch (e) { return { ok: false, why: String(e.message || e) }; }
+}
+
 // Δημιουργεί το expense στο Elorus για μία χρέωση (charge row). Επιστρέφει {ok, id?, skipped?, error?}
 async function pushCharge(c, nameByWallet) {
-  // ήδη σταλμένο;
-  const existing = c.raw && c.raw.elorus_id;
-  if (existing) return { ok: true, skipped: "already", id: existing };
+  const raw0 = c.raw || {};
+  const existing = raw0.elorus_id;
+  // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο, συμπλήρωσέ το (idempotent, χωρίς νέο έξοδο).
+  if (existing) {
+    if (raw0.elorus_attachment || !c.receipt_url) return { ok: true, skipped: "already", id: existing };
+    const att = await attachReceipt(existing, c.receipt_url, `Απόδειξη ${cleanName(c.merchant)}`);
+    if (att.ok) await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, { elorus_attachment: att.id, elorus_att_at: new Date().toISOString() }) });
+    return { ok: true, skipped: "attach-only", id: existing, attachment: att };
+  }
   if (!c.has_receipt || !c.project) return { ok: false, skipped: "incomplete" };
 
   const amt = Math.abs(+c.amount);
@@ -135,10 +165,12 @@ async function pushCharge(c, nameByWallet) {
   const r = await elorus("POST", "expenses/", payload);
   if (r.status !== 201 && r.status !== 200) return { ok: false, error: `Elorus ${r.status}`, detail: r.body };
   const id = r.body && r.body.id;
-  // idempotency: κράτα το elorus_id στη χρέωση
-  const newRaw = Object.assign({}, c.raw || {}, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null });
+  // Επισύναψε την απόδειξη ως αρχείο μέσα στο έξοδο (best-effort).
+  const att = c.receipt_url ? await attachReceipt(id, c.receipt_url, `Απόδειξη ${store}`) : { ok: false, why: "no-receipt" };
+  // idempotency: κράτα elorus_id + attachment στη χρέωση
+  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null });
   await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: newRaw });
-  return { ok: true, id, category: catId, option: opt || null };
+  return { ok: true, id, category: catId, option: opt || null, attachment: att };
 }
 
 async function walletInfo() {
@@ -160,10 +192,12 @@ module.exports = async (req, res) => {
     let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body || "{}"); } catch (e) { body = {}; } }
     body = body || {};
 
-    // ---- BULK / CRON: push όλων των eligible ----
+    // ---- BULK: push όλων των eligible ----
+    // Auth: Vercel cron header Ή έγκυρο member token (w,t) — το χρησιμοποιεί το κουμπί & το daily task.
     if (q.all || body.all) {
-      const isCronReq = !!req.headers["x-vercel-cron"] || String(q.secret || "") === String(process.env.ELORUS_PUSH_SECRET || "__none__");
-      if (!isCronReq) return res.status(403).json({ error: "Μόνο από cron ή με secret" });
+      const aw = String(body.w || q.w || ""), at = String(body.t || q.t || "");
+      const authed = !!req.headers["x-vercel-cron"] || (aw && verifyToken(aw, at)) || String(q.secret || "") === String(process.env.ELORUS_PUSH_SECRET || "__none__");
+      if (!authed) return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
       const nameByWallet = await walletInfo();
       // eligible: έχει απόδειξη + project, δεν είναι εσωτερικό-εξαίρεση, δεν έχει elorus_id
       const rows = await sbSelect("charges", `has_receipt=eq.true&project=not.is.null&order=occurred_at.asc&limit=500`);
