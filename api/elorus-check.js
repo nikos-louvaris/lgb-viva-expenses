@@ -45,6 +45,19 @@ module.exports = async (req, res) => {
     // Tracking category detail με IDs των options (χρειάζονται για POST).
     const trd = await eg("trackingcategories/2816025548696847940/");
     out._trackingDetail = trd.body || trd;
+    // Βρες ΠΡΑΓΜΑΤΙΚΟ έξοδο που ΕΧΕΙ tracking → μαθαίνουμε ακριβώς το format του trackingcategories στο POST.
+    const list = await eg("expenses/?page_size=40&ordering=-date");
+    const results = (list.body && list.body.results) || [];
+    out._withTracking = null;
+    out._withItemTracking = null;
+    for (const e of results) {
+      const det = await eg(`expenses/${e.id}/`);
+      const b = det.body || {};
+      if (b.trackingcategories && b.trackingcategories.length && !out._withTracking) out._withTracking = { id: b.id, date: b.date, trackingcategories: b.trackingcategories };
+      const it = (b.items || []).find((x) => x.trackingcategories && x.trackingcategories.length);
+      if (it && !out._withItemTracking) out._withItemTracking = { id: b.id, item: it };
+      if (out._withTracking && out._withItemTracking) break;
+    }
     return res.status(200).json(out);
   } catch (err) {
     return res.status(200).json({ error: String(err.message || err) });
