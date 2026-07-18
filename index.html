@@ -176,6 +176,9 @@ const NAMES={"448933314799":"Άγγελος Χρονόπουλος","32488774108
 function niceName(walletId,friendly){if(NAMES[String(walletId)])return NAMES[String(walletId)];const m=String(friendly||"").match(/^(.*?)\s*\d{4}$/);return (m?m[1]:friendly||"").trim();}
 // Ώρα Ελλάδας (Europe/Athens) ανεξαρτήτως offset της Viva — ημ/νία & ώρα χτυπήματος
 function grParts(iso){try{const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));const g=t=>(p.find(x=>x.type===t)||{}).value||"00";return {dm:g("day")+"/"+g("month"),hm:g("hour")+":"+g("minute")};}catch(e){return {dm:"",hm:""};}}
+// Διόρθωση ωρών cron (Data Services): ώρα Αθήνας λαθεμένα σφραγισμένη ως +00:00 → σωστό instant.
+function athOffMin(d){const p=new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Athens",hour12:false,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"}).formatToParts(d).reduce((a,x)=>(a[x.type]=x.value,a),{});const asUTC=Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second);return (asUTC-d.getTime())/60000;}
+function fixDsTime(iso){try{const w=new Date(iso);return new Date(w.getTime()-athOffMin(w)*60000).toISOString();}catch(e){return iso;}}
 // Καθαρίζει τα ονόματα καταστημάτων για εμφάνιση (μετά το dedup — το dedup χρειάζεται το πρωτότυπο "Δέσμευση…").
 const _BRANDS=[[/FREE.?NOW|HOLD\.FREE-NOW/,"FREE NOW"],[/UBER|\bUBR\b/,"Uber"],[/EFOOD/,"efood"],[/WOLT/,"Wolt"],[/ABVASSILOPOULOS|^AB[\s_]|ΒΑΣΙΛΟΠΟΥΛ/,"ΑΒ Βασιλόπουλος"],[/SHELL/,"Shell"],[/\bEKO\b/,"ΕΚΟ"],[/\bBP\b/,"BP"],[/KAYSIMA ATTIKHS/,"Καύσιμα Αττικής"],[/\bOASA\b/,"ΟΑΣΑ"],[/SKROUTZ/,"Skroutz"],[/ANTHROPIC/,"Anthropic (Claude)"],[/OPENAI|CHATGPT/,"OpenAI (ChatGPT)"],[/^ZARA/,"ZARA"],[/JUMBO/,"Jumbo"],[/^H\s?M\s|H&M|^HM\b/,"H&M"],[/FLOCAFE/,"Flocafé"],[/\bERGON\b/,"Ergon"],[/ATTIKI ODOS/,"Αττική Οδός"],[/OLYMPIA (ODOS|DIODIA|PACHI)/,"Ολυμπία Οδός"],[/ELLESTIA MALL/,"Ellestia Mall"],[/JOWAE/,"Jowaé"]];
 function cleanMerchant(raw){let s=String(raw||"").trim();if(!s)return "—";s=s.replace(/^Δέσμευση Αγοράς με Viva Wallet Card\s*-?\s*/i,"").replace(/^Αγορά με Viva Wallet Card\s*-?\s*/i,"");const U=s.toUpperCase();for(const [re,name] of _BRANDS){if(re.test(U))return name;}s=s.replace(/^[A-Z0-9]{2,10}\s*\*\s*/i,"").replace(/_/g," ").replace(/\s+/g," ").trim();s=s.replace(/\s+(E\.?E\.?|A\.?E\.?|I\.?K\.?E\.?|S\.?A\.?|MONOPR\.?|LTD)\.?$/i,"").trim();if(s.length<2)return "Αγορά με κάρτα";return s.replace(/\b[A-Z][A-Z0-9&.\-]{2,}\b/g,w=>w.charAt(0)+w.slice(1).toLowerCase());}
@@ -809,37 +812,48 @@ async function reloadState(manual){
         if(!p) return; // δεν είναι κάρτα-μέλους → αγνόησέ τη (καμία ορφανή εκκρεμότητα)
         // ΔΕΝ φιλτράρουμε εδώ με START_DATE — πρώτα κάνουμε dedup σε ΟΛΟΥΣ τους μήνες (όπως η προσωπική σελίδα),
         // ώστε οι σημερινές εκκαθαρίσεις παλιών αγορών να ταιριάξουν & να μη μείνουν σαν φαντάσματα.
-        const gp=grParts(c.occurred_at);
-        ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:new Date(c.occurred_at).getDate(),when:c.occurred_at,
+        let when=c.occurred_at;
+        if(/Viva Wallet Card/i.test(c.merchant||"")) when=fixDsTime(when); // cron-εγγραφή → διόρθωση ώρας
+        const gp=grParts(when);
+        ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:new Date(when).getDate(),when,
           dm:gp.dm,hm:gp.hm,
           merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,receiptUrl:c.receipt_url||null,
           project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
-          pending:c.status==="PENDING_CLEAR", // ⏳ δέσμευση που δεν εκκαθαρίστηκε ακόμα
+          pending:c.status==="PENDING_CLEAR",status:c.status,
           vid:String(c.viva_tx_id||""),
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
-      // DEDUP #1: ένωσε την ΙΔΙΑ συναλλαγή (webhook+sync) σε ΜΙΑ γραμμή. ΣΥΓΧΩΝΕΥΕΙ τα πεδία (δεν πετάει καμία γραμμή ολόκληρη),
-      // ώστε να μη χαθεί απόδειξη/project που μπήκε στη μία εκδοχή. Κρατά πραγματικό μαγαζί + ΝΩΡΙΤΕΡΗ ώρα (=χτύπημα).
-      {const norm=id=>String(id||"").replace(/^AUTH-/,""),isD=m=>/^Δέσμευση/.test(m||"");
+      // DEDUP: (1) ένωσε ίδια συναλλαγή, (2) ρίξε cron-εκκαθαρίσεις σε προγενέστερη πραγματική ίδιου ποσού, (3) ένωσε ορφανές cron-εγγραφές.
+      {const norm=id=>String(id||"").replace(/^AUTH-/,""),isDup=m=>/Viva Wallet Card/i.test(m||"");
        const mp=new Map();
        for(const c of ALL_CHARGES){const k=norm(c.vid);const ex=mp.get(k);
          if(!ex){mp.set(k,c);continue;}
-         if(isD(ex.merchant)&&!isD(c.merchant)) ex.merchant=c.merchant;                 // κράτα το πραγματικό όνομα μαγαζιού
-         if(String(c.when||"")<String(ex.when||"")){ex.when=c.when;ex.dm=c.dm;ex.hm=c.hm;ex.day=c.day;} // νωρίτερη = χτύπημα
-         if(c.receipt){ex.receipt=true;ex.receiptUrl=c.receiptUrl||ex.receiptUrl;}      // κράτα την απόδειξη από όποια γραμμή την έχει
-         if(c.project){ex.project=c.project;ex.internal=c.internal;}                     // κράτα το project από όποια γραμμή το έχει
-         if(!c.pending) ex.pending=false;                                               // αν έστω μία εκκαθαρίστηκε → δεν εκκρεμεί
+         if(isDup(ex.merchant)&&!isDup(c.merchant)) ex.merchant=c.merchant;
+         if(String(c.when||"")<String(ex.when||"")){ex.when=c.when;ex.dm=c.dm;ex.hm=c.hm;ex.day=c.day;}
+         if(c.receipt){ex.receipt=true;ex.receiptUrl=c.receiptUrl||ex.receiptUrl;}
+         if(c.project){ex.project=c.project;ex.internal=c.internal;}
+         if(String(c.status)!=="PENDING_CLEAR"){ex.status=c.status;ex.pending=false;}
        }
-       ALL_CHARGES.length=0;for(const c of mp.values())ALL_CHARGES.push(c);}
-      // DEDUP #2: ταίριασε δέσμευση(χτύπημα)↔εκκαθάριση ίδιου ποσού. Κράτα τη ΔΕΣΜΕΥΣΗ (σωστή ώρα), κάν' τη εκκαθαρισμένη, ρίξε την εκκαθάριση.
-      {const pool={};for(const a of ALL_CHARGES){if(a.pending){const k=a.walletId+"|"+a.amount.toFixed(2);(pool[k]=pool[k]||[]).push(a);}}
-       const drop=new Set();
-       for(const s of ALL_CHARGES){if(s.pending)continue;const k=s.walletId+"|"+s.amount.toFixed(2);
-         if(pool[k]&&pool[k].length){const a=pool[k].shift();a.pending=false;
-           if(s.receipt){a.receipt=true;a.receiptUrl=s.receiptUrl||a.receiptUrl;}
-           if(s.project){a.project=s.project;a.internal=s.project===INTERNAL;}
-           drop.add(s);}}
-       for(let i=ALL_CHARGES.length-1;i>=0;i--)if(drop.has(ALL_CHARGES[i]))ALL_CHARGES.splice(i,1);}
+       const L=[...mp.values()];
+       const reals=L.filter(c=>!isDup(c.merchant));
+       const dups=L.filter(c=>isDup(c.merchant)).sort((a,b)=>String(a.when||"").localeCompare(String(b.when||"")));
+       const pool={};for(const r of reals){const k=r.walletId+"|"+r.amount.toFixed(2);(pool[k]=pool[k]||[]).push(r);}
+       const used=new Set(),kept=[];
+       for(const s of dups){const k=s.walletId+"|"+s.amount.toFixed(2);
+         const cand=(pool[k]||[]).filter(r=>!used.has(r)&&String(r.when||"")<=String(s.when||"")).sort((a,b)=>String(b.when||"").localeCompare(String(a.when||"")));
+         const r=cand[0];
+         if(r){used.add(r);
+           if(s.receipt&&!r.receipt){r.receipt=true;r.receiptUrl=s.receiptUrl;}
+           if(s.project&&!r.project){r.project=s.project;r.internal=s.project===INTERNAL;}
+           r.pending=false;
+         } else kept.push(s);}
+       const km=new Map();
+       for(const s of kept){const k=s.walletId+"|"+s.amount.toFixed(2);const ex=km.get(k);
+         if(!ex){km.set(k,s);continue;}
+         if(s.receipt&&!ex.receipt){ex.receipt=true;ex.receiptUrl=s.receiptUrl;}
+         if(s.project&&!ex.project){ex.project=s.project;ex.internal=s.project===INTERNAL;}
+       }
+       ALL_CHARGES.length=0;for(const c of reals)ALL_CHARGES.push(c);for(const c of km.values())ALL_CHARGES.push(c);}
       // ΜΕΤΑ το dedup: κράτα μόνο ό,τι ΧΤΥΠΗΣΕ από την έναρξη (START_DATE) κι έπειτα —
       // ώστε οι σημερινές εκκαθαρίσεις παλιών αγορών να μην εμφανίζονται σαν νέες γραμμές.
       for(let i=ALL_CHARGES.length-1;i>=0;i--)if(String(ALL_CHARGES[i].when||"")<START_DATE)ALL_CHARGES.splice(i,1);
