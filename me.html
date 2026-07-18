@@ -44,6 +44,8 @@
   label.up.alt{border-style:solid;border-color:#d7dbea;color:#5b6478;font-weight:600;font-size:13px;margin-top:8px}
   a.pdfbox{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:16px;border:1.5px solid #cfd6ea;border-radius:11px;background:#f7f9ff;color:#3f3fae;font-weight:700;text-decoration:none}
   button.paste{width:100%;margin-top:8px;padding:11px;border:1px solid #d7dbea;border-radius:11px;background:#fff;color:#5b6478;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit}
+  .chkwarn{margin-top:10px;padding:9px 11px;background:#fff2df;border:1px solid #f2c98f;border-radius:9px;font-size:12.5px;color:#8a5300;line-height:1.4}
+  .card.flag{border-color:#f2c98f;box-shadow:0 0 0 2px #fbe4c0}
   .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
   .empty{text-align:center;color:#78809a;padding:40px 12px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
@@ -78,7 +80,8 @@ const MN=["Ιανουαρίου","Φεβρουαρίου","Μαρτίου","Απ
 const qs=new URLSearchParams(location.search);
 const W=qs.get("w"), T=qs.get("t");
 const fmt=n=>n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
-let tt;function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2600);}
+let tt;function toast(m,ms){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),ms||2600);}
+function warnIfBad(chk){if(chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"")){toast("⚠️ Προσοχή: η απόδειξη ίσως ΔΕΝ ταιριάζει με τη χρέωση — τσέκαρέ τη & άλλαξέ τη αν χρειάζεται!",5200);}}
 function fdate(iso){try{const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));const g=t=>(p.find(x=>x.type===t)||{}).value||"00";return g("day")+"/"+g("month")+" "+g("hour")+":"+g("minute");}catch(e){return "";}}
 
 let ALLCH=[], SM=null, NAME="", CARD="", SHOW_DONE=false, ACTIVE=null;
@@ -95,7 +98,7 @@ document.addEventListener("paste",async e=>{
     const dataUrl=await resize(blob);
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
-    toast("✅ Το screenshot αποθηκεύτηκε!");await refresh();
+    toast("✅ Το screenshot αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
   }catch(err){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");if(card)card.classList.remove("busy");}
 });
 // Φέρνει ΟΛΟΥΣ τους μήνες· κρατάει τον επιλεγμένο μήνα (SM) ώστε μετά από ανέβασμα να μη «πηδάει» πίσω.
@@ -172,8 +175,12 @@ function cardHtml(c){
       ? `<a class="pdfbox" href="${c.receipt_url}" target="_blank" rel="noopener">📄 Επισυναπτόμενο αρχείο (PDF) — πάτησε για άνοιγμα</a><a class="dl" href="${dl}">⬇ Κατέβασέ το</a>`
       : `<a href="${c.receipt_url}" target="_blank" rel="noopener"><img class="thumb" src="${c.receipt_url}" title="Πάτησε για μεγάλη εικόνα"></a><a class="dl" href="${dl}">🔍 Δες σε μεγάλη ανάλυση / κατέβασέ την</a>`)
     : "";
-  return `<div class="card" id="c-${c.id}" onclick="ACTIVE=${c.id}">
+  const chk=c.receipt_check;
+  const chkBad=chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"");
+  const chkHtml=chkBad?`<div class="chkwarn">⚠️ Η απόδειξη ${chk.verdict==="MERCHANT"?"δεν φαίνεται από αυτό το κατάστημα":("δείχνει "+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+" ενώ η χρέωση είναι "+fmt(c.amount))} — μήπως ανέβασες λάθος; <b>Άλλαξέ τη.</b></div>`:"";
+  return `<div class="card${chkBad?" flag":""}" id="c-${c.id}" onclick="ACTIVE=${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
+    ${chkHtml}
     ${preview}
     <label class="up big ${c.has_receipt?"done":""}" for="f-${c.id}">${c.has_receipt?"✓ Αποθηκεύτηκε — πάτησε για αλλαγή":"📎 Ανέβασε: φωτο · screenshot · PDF · αρχείο"}</label>
     <input type="file" id="f-${c.id}" accept="image/*,application/pdf" onchange="attachFile(${c.id},this)">
@@ -202,7 +209,7 @@ async function upload(id,input){
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
-    toast("✅ Η απόδειξη αποθηκεύτηκε!");await refresh();
+    toast("✅ Η απόδειξη αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
 }
 // Επισύναψη αρχείου (π.χ. PDF τιμολογίου από email) — ΧΩΡΙΣ σμίκρυνση, το ανεβάζει όπως είναι.
@@ -224,7 +231,7 @@ async function attachFile(id,input){
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
-    toast("✅ Αποθηκεύτηκε!");await refresh();
+    toast("✅ Αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");if(card)card.classList.remove("busy");}
 }
 // Επικόλληση screenshot από το πρόχειρο (print screen → clipboard). Το ανεβάζει σαν εικόνα.
@@ -241,7 +248,7 @@ async function pasteShot(id){
     const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
-    toast("✅ Το screenshot αποθηκεύτηκε!");await refresh();
+    toast("✅ Το screenshot αποθηκεύτηκε!");await refresh();warnIfBad(d.receipt_check);
   }catch(e){toast("Δεν έγινε η επικόλληση — δώσε άδεια «πρόχειρο» ή ανέβασέ το με το 📷");if(card)card.classList.remove("busy");}
 }
 async function setProject(id,val){
