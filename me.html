@@ -244,6 +244,17 @@ function resize(file){return new Promise(res=>{
   rd.readAsDataURL(file);
 });}
 function amtOf(id){const c=ALLCH.find(x=>x.id===id);return c?c.amount:0;}
+// Επαναχρησιμοποιούμενος OCR worker (προφορτώνεται στο άνοιγμα → πιο γρήγορος μετά).
+let OCR_WORKER=null, OCR_READY=null;
+async function getWorker(){
+  if(OCR_WORKER) return OCR_WORKER;
+  if(typeof Tesseract==="undefined") return null;
+  if(!OCR_READY) OCR_READY=(async()=>{try{OCR_WORKER=await Tesseract.createWorker("eng");return OCR_WORKER;}catch(e){return null;}})();
+  return OCR_READY;
+}
+window.addEventListener("load",()=>{ setTimeout(getWorker,1200); }); // προφόρτωση στο παρασκήνιο
+async function ocrText(dataUrl){try{const w=await getWorker();if(!w)return "";const r=await w.recognize(dataUrl);return (r&&r.data&&r.data.text)||"";}catch(e){return "";}}
+function downscale(dataUrl,max){return new Promise(res=>{const img=new Image();img.onload=()=>{try{let{width:w,height:h}=img;if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.85));}catch(e){res(dataUrl);}};img.onerror=()=>res(dataUrl);img.src=dataUrl;});}
 // Δωρεάν ανάλυση εικόνας στη συσκευή: φωτεινότητα + καθαρότητα (Laplacian variance).
 function imgMetrics(dataUrl){return new Promise(res=>{
   const img=new Image();
@@ -262,18 +273,19 @@ function imgMetrics(dataUrl){return new Promise(res=>{
 // Έλεγχος ποιότητας + ποσού. Επιστρέφει {ok, issue, check}. Αν ok=false → ΔΕΝ ανεβαίνει, βγαίνει κόκκινο με το ΣΥΓΚΕΚΡΙΜΕΝΟ λάθος.
 async function qualityCheck(dataUrl,amount){
   const met=await imgMetrics(dataUrl);
-  let text="";try{if(typeof Tesseract!=="undefined"){const r=await Tesseract.recognize(dataUrl,"eng");text=(r&&r.data&&r.data.text)||"";}}catch(e){}
+  // Γρήγορη απόρριψη ΧΩΡΙΣ OCR όταν είναι προφανώς κακή (στιγμιαίο)
+  if(met&&met.bright<52) return {ok:false,issue:"dark",check:{verdict:"UNREADABLE",src:"metrics"}};
+  if(met&&met.sharp<12) return {ok:false,issue:"blurry",check:{verdict:"UNREADABLE",src:"metrics"}};
+  // OCR σε μικρότερη εικόνα, με επαναχρησιμοποιούμενο worker (πιο γρήγορο)
+  const small=await downscale(dataUrl,1200);
+  const text=await ocrText(small);
   const a=Math.abs(+amount||0);
   const dot=a.toFixed(2),comma=dot.replace(".",","),cents=String(Math.round(a*100));
   const compact=text.replace(/[.,\s]/g,"");
   const found=a>0&&(text.includes(dot)||text.includes(comma)||compact.includes(cents));
   if(found) return {ok:true,check:{verdict:"OK",src:"ocr"}};
   const alnum=text.replace(/[^0-9A-Za-zΑ-Ωα-ω]/g,"").length;
-  let issue;
-  if(met&&met.bright<52) issue="dark";
-  else if(met&&met.sharp<12) issue="blurry";
-  else if(alnum<12) issue="small";
-  else issue="nototal";
+  const issue = alnum<12 ? "small" : "nototal";
   return {ok:false,issue,check:{verdict:"UNREADABLE",src:"ocr"}};
 }
 const ISSUE_MSG={
