@@ -45,7 +45,9 @@
   a.pdfbox{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:16px;border:1.5px solid #cfd6ea;border-radius:11px;background:#f7f9ff;color:#3f3fae;font-weight:700;text-decoration:none}
   button.paste{width:100%;margin-top:8px;padding:11px;border:1px solid #d7dbea;border-radius:11px;background:#fff;color:#5b6478;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit}
   .chkwarn{margin-top:10px;padding:10px 12px;background:#fdeae6;border:1px solid #f0a595;border-radius:9px;font-size:12.5px;color:#b3260a;font-weight:600;line-height:1.4}
+  .chkwarn.q{background:#fff4e2;border-color:#f0c58a;color:#8a5300}
   .card.flag{border-color:#e5533a;box-shadow:0 0 0 2px #f6b6a6}
+  .card.flagq{border-color:#e8a24a;box-shadow:0 0 0 2px #f7dcae}
   .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
   .empty{text-align:center;color:#78809a;padding:40px 12px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
@@ -82,23 +84,36 @@ const W=qs.get("w"), T=qs.get("t");
 const fmt=n=>n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
 let tt;function toast(m,ms){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),ms||2600);}
 // Αποτέλεσμα ελέγχου απόδειξης: ✅ αποδεκτή (πράσινο toast) ή ❌ ΛΑΘΟΣ (κόκκινο παράθυρο που μπλοκάρει).
-function showVerdict(chk){
-  const bad=chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"");
-  if(!bad){ toast(chk&&chk.verdict==="OK"?"✅ Η απόδειξη ελέγχθηκε & αποδεκτή!":"✅ Αποθηκεύτηκε",2600); return; }
-  const detail = chk.verdict==="MERCHANT"
-    ? "Το κατάστημα της απόδειξης δεν ταιριάζει με τη χρέωση."
-    : ("Η απόδειξη δείχνει <b>"+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+"</b> ενώ η χρέωση είναι <b>"+fmt(chk.chargeAmount||0)+"</b>."+(chk.verdict==="BOTH"?" Και το κατάστημα δεν ταιριάζει.":""));
+function verdictModal(color,bg,icon,title,body,btn){
   let m=document.getElementById("verdictModal");
   if(!m){m=document.createElement("div");m.id="verdictModal";
-    m.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(120,10,10,.55);display:none;align-items:center;justify-content:center;padding:20px";
+    m.style.cssText="position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;padding:20px";
     document.body.appendChild(m);}
-  m.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:22px;text-align:center;border-top:8px solid #d93025;box-shadow:0 12px 40px rgba(0,0,0,.3)">
-      <div style="font-size:44px;line-height:1">🚫</div>
-      <div style="font-size:19px;font-weight:800;color:#c5221f;margin:8px 0 6px">Λάθος απόδειξη!</div>
-      <div style="font-size:14px;color:#333;line-height:1.5">${detail}<br><br>Μάλλον ανέβασες <b>λάθος</b> φωτογραφία. Ανέβασε τη <b>σωστή</b> απόδειξη γι' αυτή τη χρέωση.</div>
-      <button onclick="closeVerdict()" style="margin-top:16px;width:100%;padding:13px;background:#d93025;color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">Το κατάλαβα — θα ανεβάσω τη σωστή</button>
+  m.style.background=bg;
+  m.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:430px;width:100%;padding:22px;text-align:center;border-top:8px solid ${color};box-shadow:0 12px 40px rgba(0,0,0,.3)">
+      <div style="font-size:44px;line-height:1">${icon}</div>
+      <div style="font-size:19px;font-weight:800;color:${color};margin:8px 0 6px">${title}</div>
+      <div style="font-size:14px;color:#333;line-height:1.5">${body}</div>
+      <button onclick="closeVerdict()" style="margin-top:16px;width:100%;padding:13px;background:${color};color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">${btn}</button>
     </div>`;
   m.style.display="flex";
+}
+function showVerdict(chk){
+  const v=chk&&chk.verdict;
+  if(v==="UNREADABLE"){
+    verdictModal("#e8850c","rgba(120,70,0,.5)","📷","Δεν διαβάζεται καλά",
+      "Η φωτογραφία είναι <b>θολή/κομμένη</b> ή δεν φαίνεται το <b>τελικό ποσό</b>.<br><br>Βγάλ' την <b>ξανά καθαρή & ολόκληρη</b> — ή, αν η απόδειξη έχει ξεθωριάσει, <b>γράψε το τελικό ποσό με στυλό</b> πάνω της και ξαναφωτογράφισέ τη.",
+      "Εντάξει — θα την ξαναβγάλω καθαρή");
+    return;
+  }
+  const bad=/^(AMOUNT|MERCHANT|BOTH)$/.test(v||"");
+  if(!bad){ toast(v==="OK"?"✅ Η απόδειξη ελέγχθηκε & αποδεκτή!":"✅ Αποθηκεύτηκε",2600); return; }
+  const detail = v==="MERCHANT"
+    ? "Το κατάστημα της απόδειξης δεν ταιριάζει με τη χρέωση."
+    : ("Η απόδειξη δείχνει <b>"+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+"</b> ενώ η χρέωση είναι <b>"+fmt(chk.chargeAmount||0)+"</b>."+(v==="BOTH"?" Και το κατάστημα δεν ταιριάζει.":""));
+  verdictModal("#d93025","rgba(120,10,10,.55)","🚫","Λάθος απόδειξη!",
+    detail+"<br><br>Μάλλον ανέβασες <b>λάθος</b> φωτογραφία. Ανέβασε τη <b>σωστή</b> απόδειξη γι' αυτή τη χρέωση.",
+    "Το κατάλαβα — θα ανεβάσω τη σωστή");
 }
 function closeVerdict(){const m=document.getElementById("verdictModal");if(m)m.style.display="none";}
 const warnIfBad=showVerdict; // συμβατότητα
@@ -195,10 +210,11 @@ function cardHtml(c){
       ? `<a class="pdfbox" href="${c.receipt_url}" target="_blank" rel="noopener">📄 Επισυναπτόμενο αρχείο (PDF) — πάτησε για άνοιγμα</a><a class="dl" href="${dl}">⬇ Κατέβασέ το</a>`
       : `<a href="${c.receipt_url}" target="_blank" rel="noopener"><img class="thumb" src="${c.receipt_url}" title="Πάτησε για μεγάλη εικόνα"></a><a class="dl" href="${dl}">🔍 Δες σε μεγάλη ανάλυση / κατέβασέ την</a>`)
     : "";
-  const chk=c.receipt_check;
-  const chkBad=chk&&/^(AMOUNT|MERCHANT|BOTH)$/.test(chk.verdict||"");
-  const chkHtml=chkBad?`<div class="chkwarn">🚫 <b>Λάθος απόδειξη:</b> ${chk.verdict==="MERCHANT"?"δεν φαίνεται από αυτό το κατάστημα":("δείχνει "+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+" ενώ η χρέωση είναι "+fmt(c.amount))} — ανέβασε τη <b>σωστή</b>.</div>`:"";
-  return `<div class="card${chkBad?" flag":""}" id="c-${c.id}" onclick="ACTIVE=${c.id}">
+  const chk=c.receipt_check; const cv=chk&&chk.verdict;
+  const chkMis=/^(AMOUNT|MERCHANT|BOTH)$/.test(cv||""); const chkQ=cv==="UNREADABLE"; const chkBad=chkMis||chkQ;
+  const chkHtml=chkMis?`<div class="chkwarn">🚫 <b>Λάθος απόδειξη:</b> ${cv==="MERCHANT"?"δεν φαίνεται από αυτό το κατάστημα":("δείχνει "+(chk.seenAmount!=null?fmt(chk.seenAmount):"άλλο ποσό")+" ενώ η χρέωση είναι "+fmt(c.amount))} — ανέβασε τη <b>σωστή</b>.</div>`
+    :chkQ?`<div class="chkwarn q">📷 <b>Δεν διαβάζεται καλά</b> (θολή/κομμένη ή δεν φαίνεται το ποσό). Βγάλ' την ξανά καθαρή — ή γράψε το τελικό ποσό με <b>στυλό</b>.</div>`:"";
+  return `<div class="card${chkMis?" flag":chkQ?" flagq":""}" id="c-${c.id}" onclick="ACTIVE=${c.id}">
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
     ${chkHtml}
     ${preview}
