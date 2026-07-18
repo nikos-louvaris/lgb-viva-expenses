@@ -20,16 +20,22 @@ module.exports = async (req, res) => {
     const out = { org: ORG, keyPresent: !!k, keyLen: k.length };
     const cats = await eg("expensecategories/?page_size=100");
     out.expensecategories = (cats.body && cats.body.results)
-      ? cats.body.results.map((c) => ({ id: c.id, name: c.name }))
+      ? cats.body.results.map((c) => ({ id: c.id, name: c.name || c.title || c.label || c.description }))
       : cats;
+    out._catSample = (cats.body && cats.body.results && cats.body.results[0]) || null;
     const projs = await eg("projects/?page_size=100");
     out.projects = (projs.body && projs.body.results)
       ? projs.body.results.map((p) => ({ id: p.id, title: p.title || p.name }))
       : projs;
     const tr = await eg("trackingcategories/?page_size=100");
     out.trackingcategories = (tr.body && tr.body.results)
-      ? tr.body.results.map((t) => ({ id: t.id, name: t.name, options: (t.options || []).map((o) => ({ id: o.id, name: o.name })) }))
+      ? tr.body.results.map((t) => ({ id: t.id, name: t.name || t.title, options: (t.options || []).map((o) => ({ id: o.id, name: o.name || o.title || o.value })) }))
       : tr;
+    out._trSample = (tr.body && tr.body.results && tr.body.results[0]) || null;
+    // Δείγμα υπάρχοντος εξόδου (τα 2 χειροκίνητα) → μαθαίνουμε ΑΚΡΙΒΩΣ το schema για το POST.
+    const exps = await eg("expenses/?page_size=3&ordering=-date");
+    out._expenseCount = (exps.body && exps.body.count) || 0;
+    out._expenseSample = (exps.body && exps.body.results && exps.body.results[0]) || exps;
     return res.status(200).json(out);
   } catch (err) {
     return res.status(200).json({ error: String(err.message || err) });
