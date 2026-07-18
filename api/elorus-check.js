@@ -35,7 +35,16 @@ module.exports = async (req, res) => {
     // Δείγμα υπάρχοντος εξόδου (τα 2 χειροκίνητα) → μαθαίνουμε ΑΚΡΙΒΩΣ το schema για το POST.
     const exps = await eg("expenses/?page_size=3&ordering=-date");
     out._expenseCount = (exps.body && exps.body.count) || 0;
-    out._expenseSample = (exps.body && exps.body.results && exps.body.results[0]) || exps;
+    const first = (exps.body && exps.body.results && exps.body.results[0]) || null;
+    out._expenseSample = first || exps;
+    // ΠΛΗΡΕΣ detail του εξόδου (γραμμές/κατηγορία/tracking/attachments) — αυτό είναι το POST schema.
+    if (first && first.id) {
+      const det = await eg(`expenses/${first.id}/`);
+      out._expenseDetail = det.body || det;
+    }
+    // Tracking category detail με IDs των options (χρειάζονται για POST).
+    const trd = await eg("trackingcategories/2816025548696847940/");
+    out._trackingDetail = trd.body || trd;
     return res.status(200).json(out);
   } catch (err) {
     return res.status(200).json({ error: String(err.message || err) });
