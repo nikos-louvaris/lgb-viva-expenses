@@ -35,7 +35,7 @@ async function validateReceipt(dataUrl, chargeAmount, chargeMerchant) {
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: "Διάβασε αυτή την απόδειξη. Επίστρεψε ΜΟΝΟ JSON: {\"amount\": <τελικό σύνολο ως αριθμός ή null>, \"merchant\": \"<όνομα καταστήματος ή κενό>\"}. Χωρίς άλλο κείμενο." },
+            { type: "text", text: "Είσαι ελεγκτής αποδείξεων. Κοίτα την εικόνα. Επίστρεψε ΜΟΝΟ JSON: {\"amount\": <το ΤΕΛΙΚΟ σύνολο ως αριθμός — δέξου το ΕΙΤΕ τυπωμένο ΕΙΤΕ γραμμένο με ΣΤΥΛΟ πάνω στο χαρτί· null αν δεν φαίνεται πουθενά>, \"merchant\": \"<κατάστημα ή κενό>\", \"legible\": <true αν η φωτο είναι καθαρή και ΦΑΙΝΕΤΑΙ το τελικό ποσό, false αν είναι θολή/σκοτεινή/κομμένη/μισή ή δεν φαίνεται το σύνολο>, \"issue\": \"<blurry|cut|no_total|dark ή κενό>\"}. Χωρίς άλλο κείμενο." },
             { type: "image_url", image_url: { url: dataUrl } },
           ],
         }],
@@ -48,7 +48,10 @@ async function validateReceipt(dataUrl, chargeAmount, chargeMerchant) {
     const got = JSON.parse(txt);
     const seenAmt = got.amount == null ? null : Number(String(got.amount).replace(",", "."));
     const seenMer = String(got.merchant || "");
-    if (seenAmt == null) return { verdict: "UNREADABLE", seenAmount: null, seenMerchant: seenMer, at: new Date().toISOString() };
+    const legible = got.legible !== false;   // default true
+    const issue = String(got.issue || "");
+    // Ποιότητα: θολή/κομμένη ή δεν φαίνεται το τελικό ποσό (ούτε χειρόγραφο) → ζήτα καθαρή φωτο
+    if (!legible || seenAmt == null) return { verdict: "UNREADABLE", issue, seenAmount: seenAmt, seenMerchant: seenMer, at: new Date().toISOString() };
     const ca = Math.abs(+chargeAmount);
     const amtBad = Math.abs(seenAmt - ca) > Math.max(0.05, ca * 0.02);
     // μαγαζί: κοινή λέξη ≥3 χαρακτ. → ταιριάζει (χαλαρό)
