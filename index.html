@@ -135,6 +135,7 @@
     <b style="font-size:13px">⬇ Κατέβασε ΟΛΩΝ των υπαλλήλων (τρέχων μήνας):</b>
     <button class="btn btn-ghost btn-sm" onclick="exportAllExcel()">📊 Excel (όλοι)</button>
     <button class="btn btn-ghost btn-sm" onclick="downloadReceiptsZip('month',null,this)">🗂 ZIP όλων των αποδείξεων</button>
+    <button class="btn btn-primary btn-sm" onclick="pushAllElorus(this)" title="Στέλνει στο Elorus (LGB) όσες χρεώσεις έχουν απόδειξη + project και δεν έχουν σταλεί ήδη">📗 Στείλε στο Elorus</button>
     <span class="mini">— όλες οι αποδείξεις όλων σε ένα αρχείο, + λίστα cross-check (τι λείπει vs Viva)</span>
   </div>
 
@@ -409,7 +410,7 @@ function openProject(pr){
       <button class="btn btn-ghost" onclick="printPackage('project','${pr.replace(/'/g,"\\'")}')">📄 Όλα σε PDF</button>
       <button class="btn btn-ghost" onclick="downloadReceiptsZip('project','${pr.replace(/'/g,"\\'")}',this)">🗂 ZIP αποδείξεων</button>
       <button class="btn btn-primary" ${ready?"":"disabled"} onclick="toast('${ready?"Το κλείσιμο μήνα θα ενεργοποιηθεί στην πλήρη έκδοση":""}')">🔒 Κλείσιμο μήνα</button>
-      <button class="btn btn-ghost" ${ready?"":"disabled"} onclick="toast('Θα καταχωρήσει τα έξοδα στο Elorus LGB → ΕΞΟΔΟΛΟΓΙΑ: ${pr.replace(/'/g,"\\'")} (πλήρης έκδοση)')">📗 Στείλε στο Elorus</button>
+      <button class="btn btn-primary" onclick="pushAllElorus(this)" title="Στέλνει στο Elorus όλες τις ολοκληρωμένες χρεώσεις (απόδειξη+project) που δεν έχουν σταλεί">📗 Στείλε στο Elorus</button>
     </div>`);
 }
 
@@ -712,6 +713,25 @@ function receiptGallery(list){
 function openDrawer(html){document.getElementById("drawer").innerHTML=html;document.getElementById("drawer").classList.add("show");document.getElementById("overlay").classList.add("show")}
 function closeDrawer(){document.getElementById("drawer").classList.remove("show");document.getElementById("overlay").classList.remove("show")}
 let tt; function toast(msg){if(!msg)return;const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2600)}
+
+// Στέλνει στο Elorus (LGB) όλες τις ολοκληρωμένες χρεώσεις (απόδειξη+project) που δεν έχουν σταλεί.
+async function pushAllElorus(btn){
+  if(!confirm("Να σταλούν στο Elorus (LGB → ΕΞΟΔΟΛΟΓΙΑ) όσες χρεώσεις έχουν απόδειξη + project και δεν έχουν καταχωρηθεί ήδη;\n\nΌσες έχουν ήδη σταλεί αγνοούνται (δεν διπλοκαταχωρούνται)."))return;
+  const old=btn?btn.textContent:""; if(btn){btn.disabled=true;btn.textContent="⏳ Αποστολή…";}
+  try{
+    const lr=await fetch("/api/my?links=1",{cache:"no-store"}); const ld=await lr.json();
+    const p=(ld.people||[])[0]; if(!p||!p.link)throw new Error("Δεν βρέθηκε token");
+    const u=new URL(p.link); const w=u.searchParams.get("w"), t=u.searchParams.get("t");
+    const r=await fetch(`/api/elorus-push?all=1&w=${w}&t=${t}`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    const d=await r.json();
+    if(!r.ok||d.error)throw new Error(d.error||("HTTP "+r.status));
+    const created=(d.results||[]).filter(x=>x.ok&&!x.skipped).length;
+    const attached=(d.results||[]).filter(x=>x.skipped==="attach-only").length;
+    const failed=(d.results||[]).filter(x=>!x.ok).length;
+    toast(`📗 Elorus: ${created} νέα έξοδα, ${attached} συνημμένα, ${failed} με σφάλμα (σαρώθηκαν ${d.scanned||0})`);
+  }catch(e){toast("⚠️ Elorus: "+(e.message||e));}
+  finally{if(btn){btn.disabled=false;btn.textContent=old;}}
+}
 
 // Προβολή απόδειξης σε πλήρη ανάλυση + κατέβασμα (για τη λογίστρια / έλεγχο / αρχείο)
 function openReceipt(url,cap){
