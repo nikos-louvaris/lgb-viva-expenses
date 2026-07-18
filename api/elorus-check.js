@@ -58,6 +58,11 @@ module.exports = async (req, res) => {
       if (it && !out._withItemTracking) out._withItemTracking = { id: b.id, item: it };
       if (out._withTracking && out._withItemTracking) break;
     }
+    // ΑΝΑΚΑΛΥΨΗ ATTACHMENTS: το χειροκίνητο έξοδο Wispr (3585215857300603942) έχει συνημμένη απόδειξη.
+    const man = await eg("expenses/3585215857300603942/");
+    out._manualExpense = man.body || man;
+    out._attachmentsList = (await eg("attachments/?page_size=5")).body;
+    out._attByExpense = (await eg("attachments/?expense=3585215857300603942")).body;
     return res.status(200).json(out);
   } catch (err) {
     return res.status(200).json({ error: String(err.message || err) });
