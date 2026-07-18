@@ -42,6 +42,7 @@
   a.dl{display:block;text-align:center;margin-top:6px;font-size:12.5px;font-weight:700;color:var(--brand);text-decoration:none}
   label.up.alt{border-style:solid;border-color:#d7dbea;color:#5b6478;font-weight:600;font-size:13px;margin-top:8px}
   a.pdfbox{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:16px;border:1.5px solid #cfd6ea;border-radius:11px;background:#f7f9ff;color:#3f3fae;font-weight:700;text-decoration:none}
+  button.paste{width:100%;margin-top:8px;padding:11px;border:1px solid #d7dbea;border-radius:11px;background:#fff;color:#5b6478;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit}
   .done-tag{font-size:12px;color:var(--ok);font-weight:700;margin-top:8px}
   .empty{text-align:center;color:#78809a;padding:40px 12px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:11px 18px;border-radius:11px;font-size:14px;opacity:0;transition:.25s;z-index:9;max-width:90%}
@@ -162,6 +163,7 @@ function cardHtml(c){
     <input type="file" id="f-${c.id}" accept="image/*" capture="environment" onchange="upload(${c.id},this)">
     <label class="up alt" for="af-${c.id}">📎 …ή επισύναψε αρχείο (PDF τιμολογίου από email)</label>
     <input type="file" id="af-${c.id}" accept="application/pdf,image/*" onchange="attachFile(${c.id},this)">
+    <button type="button" class="paste" onclick="pasteShot(${c.id})">📋 …ή επικόλλησε screenshot (print screen)</button>
     <select onchange="setProject(${c.id},this.value)">${opts}</select>
   </div>`;
 }
@@ -202,6 +204,23 @@ async function attachFile(id,input){
     const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
     toast("✅ Το αρχείο επισυνάφθηκε!");await refresh();
   }catch(e){toast("⚠️ Δεν ανέβηκε — δοκίμασε ξανά");card.classList.remove("busy");}
+}
+// Επικόλληση screenshot από το πρόχειρο (print screen → clipboard). Το ανεβάζει σαν εικόνα.
+async function pasteShot(id){
+  const card=document.getElementById("c-"+id);
+  try{
+    if(!(navigator.clipboard&&navigator.clipboard.read)){toast("Ο browser δεν υποστηρίζει paste — βγάλε το screenshot σαν αρχείο και πάτα 📷");return;}
+    const items=await navigator.clipboard.read();
+    let blob=null;
+    for(const it of items){const ty=it.types.find(t=>t.startsWith("image/"));if(ty){blob=await it.getType(ty);break;}}
+    if(!blob){toast("Δεν βρήκα εικόνα στο πρόχειρο. Κάνε print screen και ξαναπάτα.");return;}
+    card.classList.add("busy");toast("Ανεβαίνει το screenshot…");
+    const dataUrl=await resize(blob);
+    const r=await fetch("/api/upload-receipt",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({w:W,t:T,chargeId:id,imageBase64:dataUrl})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"error");
+    toast("✅ Το screenshot αποθηκεύτηκε!");await refresh();
+  }catch(e){toast("Δεν έγινε η επικόλληση — δώσε άδεια «πρόχειρο» ή ανέβασέ το με το 📷");if(card)card.classList.remove("busy");}
 }
 async function setProject(id,val){
   if(!val)return;
