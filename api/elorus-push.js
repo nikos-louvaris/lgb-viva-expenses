@@ -242,8 +242,21 @@ async function setExpenseSupplier(expenseId, supplierId) {
 
 // Βάζει το αρχείο στο ΠΕΔΙΟ «Απόδειξη» του εξόδου, ώστε να ΦΑΙΝΕΤΑΙ η εικόνα δεξιά
 // όταν ανοίγει το έξοδο στο Elorus (όχι απλώς συνδετήρας/link).
-// ΠΡΟΣΩΡΙΝΑ ΑΝΕΝΕΡΓΟ: το documented path .../receipt/ επιστρέφει 404. Θα ενεργοποιηθεί
-// μόλις εντοπιστεί το πραγματικό endpoint (καταγραφή του αιτήματος που κάνει το UI του Elorus).
+// Κλήση JSON στο v1.2 (τα attachments ζουν εκεί).
+async function elorus12(method, path, body) {
+  const key = process.env.ELORUS_API_KEY;
+  if (!key) return { status: 0, body: { error: "Λείπει ELORUS_API_KEY" } };
+  const r = await fetch(`https://api.elorus.com/v1.2/${path}`, {
+    method,
+    headers: { Authorization: `Token ${key}`, "X-Elorus-Organization": ORG, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const t = await r.text(); let b; try { b = JSON.parse(t); } catch (e) { b = String(t).slice(0, 200); }
+  return { status: r.status, body: b };
+}
+
+// ΑΝΕΝΕΡΓΟ (αντικαταστάθηκε): το «πλαίσιο απόδειξης» είναι στην πραγματικότητα το attachment
+// που έχει primary=true. Βλ. ensurePrimary μέσα στο attachReceipt.
 const RECEIPT_PANEL_ENABLED = false;
 async function setExpenseReceipt(expenseId, receiptUrl) {
   try {
@@ -287,9 +300,28 @@ async function setExpenseReceipt(expenseId, receiptUrl) {
 }
 
 // Επισυνάπτει το αρχείο απόδειξης στο έξοδο (Elorus API v1.2, multipart/form-data).
+// Κάνει ένα attachment «primary» → ΕΜΦΑΝΙΖΕΤΑΙ στο δεξί πλαίσιο «Απόδειξη» του εξόδου.
+async function makePrimary(expenseId, attachmentId) {
+  for (const m of ["PATCH", "PUT"]) {
+    const r = await elorus12(m, `expenses/${expenseId}/attachments/${attachmentId}/`, { primary: true });
+    if (r.status >= 200 && r.status < 300) return { ok: true, via: m };
+    if (r.status !== 404 && r.status !== 405) return { ok: false, status: r.status, detail: r.body };
+  }
+  return { ok: false, why: "primary-not-settable" };
+}
+
 async function attachReceipt(expenseId, receiptUrl, title) {
   try {
     if (!receiptUrl) return { ok: false, why: "no-url" };
+    // ΠΟΤΕ διπλό συνημμένο: αν υπάρχει ήδη, απλώς βεβαιώσου ότι είναι primary.
+    const cur = await elorus12("GET", `expenses/${expenseId}/attachments/?page_size=20`);
+    const list = (cur.body && cur.body.results) || [];
+    if (list.length) {
+      const prim = list.find((a) => a.primary);
+      if (prim) return { ok: true, id: prim.id, existed: true, primary: true };
+      const pr = await makePrimary(expenseId, list[0].id);
+      return { ok: true, id: list[0].id, existed: true, primary: pr.ok, primaryInfo: pr };
+    }
     const key = process.env.ELORUS_API_KEY;
     const rf = await fetch(receiptUrl);
     if (!rf.ok) return { ok: false, why: `fetch ${rf.status}` };
@@ -298,6 +330,7 @@ async function attachReceipt(expenseId, receiptUrl, title) {
     const ext = (ct.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
     const form = new FormData();
     form.append("title", String(title || "Απόδειξη").slice(0, 120));
+    form.append("primary", "true"); // → να φαίνεται στο δεξί πλαίσιο «Απόδειξη»
     form.append("file", new Blob([buf], { type: ct }), `apodeixi.${ext}`);
     const r = await fetch(`https://api.elorus.com/v1.2/expenses/${expenseId}/attachments/`, {
       method: "POST",
@@ -306,7 +339,11 @@ async function attachReceipt(expenseId, receiptUrl, title) {
     });
     const txt = await r.text(); let b; try { b = JSON.parse(txt); } catch (e) { b = txt.slice(0, 200); }
     if (r.status !== 201 && r.status !== 200) return { ok: false, status: r.status, detail: b };
-    return { ok: true, id: b && b.id };
+    const newId = b && b.id;
+    // Σιγουριά: αν το POST δεν δέχτηκε το primary, όρισέ το ρητά.
+    let prim = { ok: !!(b && b.primary) };
+    if (!prim.ok && newId) prim = await makePrimary(expenseId, newId);
+    return { ok: true, id: newId, primary: prim.ok, primaryInfo: prim };
   } catch (e) { return { ok: false, why: String(e.message || e) }; }
 }
 
@@ -337,15 +374,15 @@ async function pushCharge(c, nameByWallet, opts) {
   // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο/προμηθευτής, συμπλήρωσέ το (χωρίς νέο έξοδο).
   if (existing) {
     const fixes = {}; let att = null, supFix = null, rec = null;
-    // 1) λείπει συνημμένο → βάλ' το
-    if (!raw0.elorus_attachment && c.receipt_url) {
+    // 1) Συνημμένο + «Απόδειξη» (primary). Idempotent: δεν προσθέτει δεύτερο αρχείο —
+    //    αν υπάρχει ήδη, απλώς βεβαιώνεται ότι είναι primary ώστε να φαίνεται δεξιά.
+    if (c.receipt_url && !(raw0.elorus_attachment && raw0.elorus_primary)) {
       att = await attachReceipt(existing, c.receipt_url, `Απόδειξη ${cleanName(c.merchant)}`);
-      if (att.ok) { fixes.elorus_attachment = att.id; fixes.elorus_att_at = new Date().toISOString(); }
-    }
-    // 1β) λείπει από το πεδίο «Απόδειξη» (δεξιά προβολή) → βάλ' το
-    if (!raw0.elorus_receipt && c.receipt_url) {
-      rec = await setExpenseReceipt(existing, c.receipt_url);
-      if (rec.ok) fixes.elorus_receipt = true;
+      if (att.ok) {
+        fixes.elorus_attachment = att.id;
+        fixes.elorus_att_at = new Date().toISOString();
+        if (att.primary) fixes.elorus_primary = true;
+      }
     }
     // 2) λείπει προμηθευτής → βρες τον και ΔΙΟΡΘΩΣΕ το υπάρχον έξοδο (όχι νέο/διπλό)
     if (!raw0.elorus_supplier) {
@@ -430,7 +467,7 @@ async function pushCharge(c, nameByWallet, opts) {
   // ΚΑΙ στο πεδίο «Απόδειξη» → να φαίνεται η εικόνα δεξιά στο άνοιγμα του εξόδου
   const rec = c.receipt_url ? await setExpenseReceipt(id, c.receipt_url) : { ok: false, why: "no-receipt" };
   // idempotency: κράτα elorus_id + attachment στη χρέωση
-  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null, elorus_receipt: !!rec.ok, elorus_supplier: sup ? sup.id : null, elorus_type: isInvoice ? "invoice" : "receipt" });
+  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null, elorus_primary: !!att.primary, elorus_supplier: sup ? sup.id : null, elorus_type: isInvoice ? "invoice" : "receipt" });
   await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: newRaw });
   return { ok: true, id, category: catId, option: opt || null, attachment: att, receipt: rec, type: isInvoice ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", supplier: sup, warn: supWarn };
 }
