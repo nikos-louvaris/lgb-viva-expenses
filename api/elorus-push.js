@@ -493,7 +493,8 @@ module.exports = async (req, res) => {
         for (const c of ded) {
           if (!c.has_receipt || !c.project) continue;
           scanned++;
-          if (c.raw && c.raw.elorus_id && c.raw.elorus_attachment && c.raw.elorus_supplier) continue; // πλήρως ολοκληρωμένο
+          // ΔΕΝ παρακάμπτουμε: το pushCharge επαληθεύει ότι το έξοδο υπάρχει ΟΝΤΩΣ στο Elorus
+          // (πιάνει ορφανά αν διαγράφηκε) και είναι idempotent — δεν δημιουργεί ποτέ διπλό.
           const r = await pushCharge(c, nameByWallet);
           out.push({ id: c.id, ...r });
         }
