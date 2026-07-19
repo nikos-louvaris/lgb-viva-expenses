@@ -101,6 +101,12 @@ module.exports = async (req, res) => {
       // «Δεύτερο μάτι» (ΔΩΡΕΑΝ): προτίμησε το τοπικό OCR του browser (check). Αν λείπει & υπάρχει AI-κλειδί, fallback.
       const chk = (check && check.verdict) ? check : await validateReceipt(imageBase64, cur.amount, cur.merchant);
       patch.raw = Object.assign({}, cur.raw || {}, { receipt_check: chk });
+      // Στοιχεία τιμολογίου (αρ. + ημ/νία έκδοσης) από το OCR του ανεβάσματος — ΜΙΑ φορά,
+      // εδώ. Το Elorus push τα χρησιμοποιεί έτοιμα, χωρίς δεύτερη αναγνώριση.
+      const inv = chk && chk.invoice;
+      if (inv && (inv.number || inv.date)) {
+        patch.raw.invoice = { number: inv.number || null, date: inv.date || null, isInvoice: !!inv.isInvoice, at: new Date().toISOString() };
+      }
     }
     if (project !== undefined) patch.project = project || null;
 

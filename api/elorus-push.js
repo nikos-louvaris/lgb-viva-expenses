@@ -403,8 +403,15 @@ async function pushCharge(c, nameByWallet, opts) {
   if (!(amt > 0)) return { ok: false, error: "μηδενικό ποσό" };
   // ΚΑΝΟΝΑΣ: αν υπάρχει ημερομηνία ΤΙΜΟΛΟΓΙΟΥ (από OCR ή override), αυτή υπερισχύει
   // της ημερομηνίας χρέωσης της κάρτας.
-  const invDate = opts.date || (raw0.invoice && raw0.invoice.date) || null;
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(invDate || "")) ? String(invDate) : athDate(c.occurred_at);
+  const cardDate = athDate(c.occurred_at);
+  const invDateRaw = opts.date || (raw0.invoice && raw0.invoice.date) || null;
+  // Δικλείδα: δεχόμαστε την ημερομηνία τιμολογίου μόνο αν είναι λογική σε σχέση με τη
+  // χρέωση (±60 ημέρες) — ώστε λάθος ανάγνωση OCR να μη ρίξει το έξοδο σε άλλη περίοδο.
+  let date = cardDate, dateSrc = "κάρτα";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(invDateRaw || ""))) {
+    const diff = Math.abs(new Date(invDateRaw + "T12:00:00Z") - new Date(cardDate + "T12:00:00Z")) / 86400000;
+    if (diff <= 60) { date = String(invDateRaw); dateSrc = "τιμολόγιο"; }
+  }
   const invNo = opts.reference || (raw0.invoice && raw0.invoice.number) || null;
 
   // ΦΥΛΑΚΑΣ: υπάρχει ήδη στο Elorus; (ποτέ διπλή καταχώρηση)
@@ -469,7 +476,7 @@ async function pushCharge(c, nameByWallet, opts) {
   // idempotency: κράτα elorus_id + attachment στη χρέωση
   const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null, elorus_primary: !!att.primary, elorus_supplier: sup ? sup.id : null, elorus_type: isInvoice ? "invoice" : "receipt" });
   await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: newRaw });
-  return { ok: true, id, category: catId, option: opt || null, attachment: att, receipt: rec, type: isInvoice ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", supplier: sup, warn: supWarn };
+  return { ok: true, id, category: catId, option: opt || null, attachment: att, receipt: rec, type: isInvoice ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", date, dateSrc, reference: invNo || null, supplier: sup, warn: supWarn };
 }
 
 async function walletInfo() {
