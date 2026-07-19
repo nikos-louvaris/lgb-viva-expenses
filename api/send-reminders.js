@@ -88,6 +88,7 @@ module.exports = async (req, res) => {
   try {
     const q = req.query || {};
     let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body || "{}"); } catch (e) { body = {}; } }
+    body = body || {};
     const action = String(q.action || (body && body.action) || "").toLowerCase();
     const LIVE = process.env.EMAILS_LIVE === "true";
 
