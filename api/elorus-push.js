@@ -252,27 +252,30 @@ async function setExpenseReceipt(expenseId, receiptUrl) {
     const buf = Buffer.from(await rf.arrayBuffer());
     const ext = (ct.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
     const attempts = [];
+    const P = `expenses/${expenseId}/receipt/`;
     const combos = [
-      { p: `expenses/${expenseId}/receipt/`, m: "POST", f: "file" },
-      { p: `expenses/${expenseId}/receipt/`, m: "PUT", f: "file" },
-      { p: `expenses/${expenseId}/receipt`, m: "POST", f: "file" },
-      { p: `expenses/${expenseId}/receipt/`, m: "POST", f: "receipt" },
-      { p: `expenses/${expenseId}/receipt/`, m: "POST", f: "document" },
+      // raw body (το αρχείο σκέτο) — πιθανότερο για endpoint «receipt»
+      { v: "v1.2", p: P, m: "PUT", raw: true },
+      { v: "v1.2", p: P, m: "POST", raw: true },
+      { v: "v1.2", p: `expenses/${expenseId}/receipt`, m: "PUT", raw: true },
+      // multipart παραλλαγές
+      { v: "v1.2", p: P, m: "POST", f: "file" },
+      { v: "v1.2", p: P, m: "PUT", f: "file" },
+      { v: "v1.1", p: P, m: "POST", f: "file" },
     ];
     for (const cb of combos) {
+      const label = `${cb.m} ${cb.v}/${cb.p}${cb.raw ? " [raw]" : ` [${cb.f}]`}`;
       try {
-        const form = new FormData();
-        form.append(cb.f, new Blob([buf], { type: ct }), `apodeixi.${ext}`);
-        const r = await fetch(`https://api.elorus.com/v1.2/${cb.p}`, {
-          method: cb.m,
-          headers: { Authorization: `Token ${key}`, "X-Elorus-Organization": ORG },
-          body: form,
-        });
+        const headers = { Authorization: `Token ${key}`, "X-Elorus-Organization": ORG };
+        let body;
+        if (cb.raw) { body = buf; headers["Content-Type"] = ct; headers["Content-Disposition"] = `attachment; filename="apodeixi.${ext}"`; }
+        else { const form = new FormData(); form.append(cb.f, new Blob([buf], { type: ct }), `apodeixi.${ext}`); body = form; }
+        const r = await fetch(`https://api.elorus.com/${cb.v}/${cb.p}`, { method: cb.m, headers, body });
         const txt = await r.text(); let b; try { b = JSON.parse(txt); } catch (e) { b = String(txt).slice(0, 120); }
-        if (r.status >= 200 && r.status < 300) return { ok: true, via: `${cb.m} ${cb.p} [${cb.f}]`, body: b };
-        attempts.push({ via: `${cb.m} ${cb.p} [${cb.f}]`, status: r.status, detail: b });
+        if (r.status >= 200 && r.status < 300) return { ok: true, via: label, body: b };
+        attempts.push({ via: label, status: r.status, detail: b });
       } catch (e) {
-        attempts.push({ via: `${cb.m} ${cb.p} [${cb.f}]`, err: String(e.message || e) });
+        attempts.push({ via: label, err: String(e.message || e) });
       }
     }
     return { ok: false, attempts };
