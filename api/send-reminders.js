@@ -10,6 +10,30 @@ const BASE = "https://lgb-viva-expenses.vercel.app";
 const REVIEW = process.env.REVIEW_EMAIL || "cs@viralpassion.gr";
 const FROM = process.env.MAIL_FROM || "Σύστημα Εξόδων <expenses@aiwonderlab.eu>";
 const EKEY = "__config_emails__";
+
+// ── ΠΙΛΟΤΙΚΟ ──
+// Όσο EMAILS_LIVE=false, ΜΟΝΟ αυτές οι κάρτες παίρνουν αληθινά email. Όλοι οι άλλοι
+// συνεχίζουν να ανακατευθύνονται στον CFO με [TEST → …]. Default: Αίας Παρασκευόπουλος.
+// Την 1η Αυγούστου: EMAILS_LIVE=true → φεύγουν σε όλους και το πιλοτικό παύει να έχει σημασία.
+const PILOT = String(process.env.EMAILS_PILOT || "975269802823").split(",").map((s) => s.trim()).filter(Boolean);
+
+// ── ΚΛΙΜΑΚΩΣΗ ΥΠΕΝΘΥΜΙΣΕΩΝ ──
+// 1η: 30' μετά τη χρέωση · 2η: 1 ώρα μετά την 1η · μετά: το πολύ μία τη μέρα.
+// Οι συγκεντρωτικές (τέλος ημέρας/εβδομάδας/μήνα) φεύγουν πάντα, ανεξάρτητα.
+const MIN = 60000;
+function dueForNudge(c, now) {
+  const rem = (c.raw && c.raw.rem) || { n: 0, last: null };
+  const sinceCharge = now - new Date(c.occurred_at).getTime();
+  const sinceLast = rem.last ? now - new Date(rem.last).getTime() : Infinity;
+  if (!rem.n) return sinceCharge >= 30 * MIN;
+  if (rem.n === 1) return sinceLast >= 60 * MIN;
+  return sinceLast >= 20 * 60 * MIN;
+}
+async function markNudged(c, now) {
+  const rem = (c.raw && c.raw.rem) || { n: 0, last: null };
+  const raw = Object.assign({}, c.raw || {}, { rem: { n: (rem.n || 0) + 1, last: new Date(now).toISOString() } });
+  await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw });
+}
 const fmt = (n) => Number(n).toLocaleString("el-GR", { minimumFractionDigits: 2 }) + "€";
 
 async function readEmails() {
@@ -115,6 +139,7 @@ module.exports = async (req, res) => {
         RESEND_API_KEY: !!process.env.RESEND_API_KEY,
         MAIL_FROM: FROM,
         EMAILS_LIVE: LIVE,
+        πιλοτικοί_παραλήπτες: LIVE ? "(όλοι — live)" : PILOT,
         άτομα_στη_βάση: people.length,
         άτομα_με_email: withAddr.length,
         λίστα: people.map((w) => ({
@@ -193,17 +218,29 @@ module.exports = async (req, res) => {
         (byW[w] = byW[w] || []).push(c);
       });
       const results = [];
+      const now = Date.now();
       for (const w of Object.keys(byW)) {
         const info = emails[w];
-        const c = compose(info.firstName || info.name || "", w, info.card || "", byW[w], type);
+        let charges = byW[w];
+
+        // INSTANT = η κλιμάκωση (30' → 1ώρα → max 1/ημέρα). Οι συγκεντρωτικές φεύγουν πάντα.
+        if (type === "INSTANT") {
+          charges = charges.filter((c) => dueForNudge(c, now));
+          if (!charges.length) { results.push({ person: info.name, skipped: "δεν ήρθε η ώρα" }); continue; }
+        }
+
+        // Πιλοτικό: αληθινό email μόνο στους PILOT όσο EMAILS_LIVE=false.
+        const goesLive = LIVE || PILOT.includes(String(w));
+        const c = compose(info.firstName || info.name || "", w, info.card || "", charges, type);
         for (const to of (info.emails || [])) {
           let subject = c.subject, actualTo = to;
-          if (!LIVE) { subject = "[TEST → " + to + "] " + subject; actualTo = REVIEW; }
+          if (!goesLive) { subject = "[TEST → " + to + "] " + subject; actualTo = REVIEW; }
           const r = await resend(actualTo, subject, c.html, c.text);
-          results.push({ person: info.name, to: actualTo, live: LIVE, ok: r.ok, err: r.error });
+          results.push({ person: info.name, to: actualTo, live: goesLive, pilot: !LIVE && goesLive, charges: charges.length, ok: r.ok, err: r.error });
         }
+        if (type === "INSTANT") for (const ch of charges) await markNudged(ch, now);
       }
-      return res.status(200).json({ ok: true, live: LIVE, type, people: Object.keys(byW).length, sent: results.length, results });
+      return res.status(200).json({ ok: true, live: LIVE, pilot: LIVE ? [] : PILOT, type, people: Object.keys(byW).length, sent: results.length, results });
     }
 
     return res.status(400).json({ error: "άγνωστο action (seed-emails | test | run)" });
