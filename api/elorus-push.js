@@ -176,6 +176,31 @@ async function findSupplier(merchantRaw) {
   return best;
 }
 
+// --- ΦΥΛΑΚΑΣ ΔΙΠΛΟΕΓΓΡΑΦΩΝ ---
+// Κάθε έξοδο που φτιάχνουμε φέρει custom_id = VIVA-<chargeId>. Πριν από ΚΑΘΕ καταχώρηση
+// ρωτάμε το ΙΔΙΟ το Elorus (όχι μόνο τη βάση μας) αν υπάρχει ήδη.
+function vivaTag(chargeId) { return `VIVA-${chargeId}`; }
+async function findExistingExpense(chargeId, dateStr, amt) {
+  const tag = vivaTag(chargeId);
+  // 1) ακριβές ταίριασμα με custom_id (ο δικός μας «δακτυλικός αποτυπωτής»)
+  for (const qs of [`custom_id=${encodeURIComponent(tag)}`, `search=${encodeURIComponent(tag)}`]) {
+    const r = await elorus("GET", `expenses/?${qs}&page_size=20`);
+    const res = (r.body && r.body.results) || [];
+    const hit = res.find((x) => String(x.custom_id || "") === tag);
+    if (hit) return { kind: "same-charge", expense: hit };
+  }
+  // 2) ίδια ημερομηνία + ίδιο ποσό → πιθανό διπλό (π.χ. χειροκίνητη καταχώρηση)
+  const r2 = await elorus("GET", `expenses/?date_from=${dateStr}&date_to=${dateStr}&page_size=200`);
+  const res2 = (r2.body && r2.body.results) || [];
+  const same = res2.filter((x) => x.date === dateStr && Math.abs(parseFloat(x.total) - amt) < 0.005);
+  if (same.length) {
+    const mine = same.find((x) => String(x.custom_id || "") === tag);
+    if (mine) return { kind: "same-charge", expense: mine };
+    return { kind: "possible-duplicate", expense: same[0], count: same.length };
+  }
+  return null;
+}
+
 // Ορίζει προμηθευτή σε ΥΠΑΡΧΟΝ έξοδο. Το Elorus δεν δέχεται PATCH → GET + PUT ολόκληρου.
 async function setExpenseSupplier(expenseId, supplierId) {
   const cur = await elorus("GET", `expenses/${expenseId}/`);
@@ -258,7 +283,24 @@ async function pushCharge(c, nameByWallet, opts) {
 
   const amt = Math.abs(+c.amount);
   if (!(amt > 0)) return { ok: false, error: "μηδενικό ποσό" };
-  const date = athDate(c.occurred_at);
+  // ΚΑΝΟΝΑΣ: αν υπάρχει ημερομηνία ΤΙΜΟΛΟΓΙΟΥ (από OCR ή override), αυτή υπερισχύει
+  // της ημερομηνίας χρέωσης της κάρτας.
+  const invDate = opts.date || (raw0.invoice && raw0.invoice.date) || null;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(invDate || "")) ? String(invDate) : athDate(c.occurred_at);
+  const invNo = opts.reference || (raw0.invoice && raw0.invoice.number) || null;
+
+  // ΦΥΛΑΚΑΣ: υπάρχει ήδη στο Elorus; (ποτέ διπλή καταχώρηση)
+  if (!opts.allowDup) {
+    const dup = await findExistingExpense(c.id, date, amt);
+    if (dup && dup.kind === "same-charge") {
+      // Υπάρχει ήδη δικό μας — κράτα τη σύνδεση, μη φτιάξεις νέο
+      await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, { elorus_id: dup.expense.id }) });
+      return { ok: true, skipped: "exists-in-elorus", id: dup.expense.id };
+    }
+    if (dup && dup.kind === "possible-duplicate") {
+      return { ok: false, skipped: "possible-duplicate", detail: `Υπάρχει ήδη έξοδο ${amt.toFixed(2)}€ στις ${date} (id ${dup.expense.id}) — δεν καταχωρήθηκε για αποφυγή διπλού` };
+    }
+  }
   const catId = pickCategory(c.merchant);
   const opt = pickTrackingOption(c.project);
   const store = cleanName(c.merchant);
@@ -285,8 +327,9 @@ async function pushCharge(c, nameByWallet, opts) {
   const payload = {
     date,
     currency_code: "EUR",
+    custom_id: vivaTag(c.id), // μοναδικό «αποτύπωμα» → φύλακας διπλοεγγραφών
     supplier: sup ? sup.id : null,
-    reference: String(opts.reference || `Viva ••${card} ${c.project}`).slice(0, 60),
+    reference: String(invNo || `Viva ••${card} ${c.project}`).slice(0, 60),
     items: [{
       expense_category: catId,
       description: String(opts.descr || desc).slice(0, 300),
@@ -385,9 +428,11 @@ module.exports = async (req, res) => {
     const nameByWallet = await walletInfo();
     const r = await pushCharge(c, nameByWallet, {
       force: !!(body.force || q.force),
+      allowDup: !!(body.allowDup || q.allowDup),
       supplierId: body.supplierId || q.supplierId,
       reference: body.reference || q.reference,
       descr: body.descr || q.descr,
+      date: body.date || q.date,
     });
     if (!r.ok && !r.skipped) return res.status(400).json(r);
     return res.status(200).json(r);
