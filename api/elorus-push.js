@@ -8,6 +8,7 @@ const { sbSelect, sbUpdate, verifyToken, wallets } = require("./_viva.js");
 const BASE = "https://api.elorus.com/v1.1";
 const ORG = process.env.ELORUS_ORG_ID || "2802338946946696842";
 const TRACKING_ID = "2816025548696847940"; // tracking category «ΕΞΟΔΟΛΟΓΙΑ»
+const START_DATE = "2026-07-16";           // από πότε μετράει το σύστημα
 const INTERNAL = new Set(["LGB HOME", "LBG HOME"]);
 
 // Σωστά ελληνικά ονόματα ανά κάρτα (η Viva δίνει λατινικά friendlyName).
@@ -497,6 +498,66 @@ module.exports = async (req, res) => {
     const q = req.query || {};
     let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body || "{}"); } catch (e) { body = {}; } }
     body = body || {};
+
+    // ---- ΑΝΑΦΟΡΑ ΕΚΚΡΕΜΟΤΗΤΩΝ (read-only): ?report=1 ----
+    // Λέει σε απλά ελληνικά ΤΙ καταχωρήθηκε και ΤΙ έμεινε πίσω — με τον ΛΟΓΟ για το καθένα.
+    if (q.report) {
+      const rw = String(body.w || q.w || ""), rt = String(body.t || q.t || "");
+      const cronOk2 = !!req.headers["x-vercel-cron"] || /vercel-cron/i.test(String(req.headers["user-agent"] || ""));
+      if (!cronOk2 && !(rw && verifyToken(rw, rt))) return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
+
+      const nameByWallet = await walletInfo();
+      const EXCL2 = new Set(["901067108914"]);
+      const ws2 = await wallets();
+      const mem2 = (Array.isArray(ws2) ? ws2 : []).filter((x) => x.hasIssuedCard && !x.isPrimary && x.friendlyName && x.friendlyName !== "ακυρο" && !EXCL2.has(String(x.walletId))).map((x) => String(x.walletId));
+
+      const registered = [], pending = [], problems = [];
+      for (const wid of mem2) {
+        const info = nameByWallet[wid] || {};
+        const who = info.name || wid;
+        const raw = await sbSelect("charges", `wallet_id=eq.${wid}&order=occurred_at.desc&limit=1000`);
+        for (const c of dedupCharges(raw || [])) {
+          if (athDate(c.occurred_at) < START_DATE) continue;
+          const amt = Math.abs(+c.amount).toFixed(2);
+          const store = cleanName(c.merchant);
+          const when = grDate(c.occurred_at);
+          const base = { who, card: info.card || "", amount: +amt, store, date: when, charge: c.id };
+          const r0 = c.raw || {};
+          // ΚΑΝΟΝΑΣ: χρειάζονται ΚΑΙ χρέωση ΚΑΙ απόδειξη ΚΑΙ project
+          if (!c.has_receipt && !c.project) { pending.push({ ...base, reason: "λείπουν απόδειξη ΚΑΙ project" }); continue; }
+          if (!c.has_receipt) { pending.push({ ...base, reason: "λείπει η απόδειξη" }); continue; }
+          if (!c.project) { pending.push({ ...base, reason: "λείπει το project" }); continue; }
+          if (r0.elorus_id) {
+            registered.push({ ...base, expense: r0.elorus_id, supplier: r0.elorus_supplier && r0.elorus_supplier !== "none" ? r0.elorus_supplier : null });
+            if (r0.elorus_supplier === "none" && INVOICE_CATS.has(pickCategory(c.merchant))) {
+              problems.push({ ...base, reason: "τιμολόγιο χωρίς προμηθευτή — θέλει άνοιγμα προμηθευτή στο Elorus" });
+            }
+            if (!r0.elorus_primary) problems.push({ ...base, reason: "η απόδειξη δεν φαίνεται στη δεξιά προβολή του εξόδου" });
+          } else {
+            problems.push({ ...base, reason: "ολοκληρωμένο αλλά ΔΕΝ πέρασε στο Elorus" });
+          }
+        }
+      }
+
+      const L = [];
+      L.push(`📊 Έξοδα LGB — ${new Intl.DateTimeFormat("el-GR", { timeZone: "Europe/Athens", dateStyle: "short", timeStyle: "short" }).format(new Date())}`);
+      L.push(`✅ Καταχωρημένα στο Elorus: ${registered.length}`);
+      if (pending.length) {
+        L.push(``, `⏳ Εκκρεμούν ${pending.length} — περιμένουν τον υπάλληλο:`);
+        for (const p of pending) L.push(`   • ${p.who} — ${p.amount}€ ${p.store} (${p.date}): ${p.reason}`);
+      } else L.push(``, `⏳ Καμία εκκρεμότητα — όλοι έχουν ανεβάσει απόδειξη + project.`);
+      if (problems.length) {
+        L.push(``, `⚠️ Θέλουν δική σου προσοχή (${problems.length}):`);
+        for (const p of problems) L.push(`   • ${p.who} — ${p.amount}€ ${p.store} (${p.date}): ${p.reason}`);
+      }
+      L.push(``, `Κανόνας: τίποτα δεν καταχωρείται χωρίς χρέωση + απόδειξη + project.`);
+
+      return res.status(200).json({
+        ok: true, generatedAt: new Date().toISOString(),
+        counts: { registered: registered.length, pending: pending.length, problems: problems.length },
+        registered, pending, problems, text: L.join("\n"),
+      });
+    }
 
     // ---- ΔΕΥΤΕΡΟΣ AGENT (read-only): ?audit=1 ----
     // Ανεξάρτητος έλεγχος των καταχωρήσεων ΜΕΣΑ στο Elorus. Δεν γράφει/σβήνει τίποτα.
