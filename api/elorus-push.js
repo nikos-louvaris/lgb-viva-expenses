@@ -189,10 +189,21 @@ async function findExistingExpense(chargeId, dateStr, amt) {
     const hit = res.find((x) => String(x.custom_id || "") === tag);
     if (hit) return { kind: "same-charge", expense: hit };
   }
-  // 2) ίδια ημερομηνία + ίδιο ποσό → πιθανό διπλό (π.χ. χειροκίνητη καταχώρηση)
-  const r2 = await elorus("GET", `expenses/?date_from=${dateStr}&date_to=${dateStr}&page_size=200`);
-  const res2 = (r2.body && r2.body.results) || [];
-  const same = res2.filter((x) => x.date === dateStr && Math.abs(parseFloat(x.total) - amt) < 0.005);
+  // 2) ίδια ημερομηνία + ίδιο ποσό → πιθανό διπλό (π.χ. χειροκίνητη καταχώρηση).
+  // Σαρώνουμε με σειρά ημερομηνίας (τα φίλτρα date_from/date_to δεν είναι αξιόπιστα).
+  const same = [];
+  for (let page = 1; page <= 4; page++) {
+    const r2 = await elorus("GET", `expenses/?page_size=200&page=${page}&ordering=-date`);
+    const res2 = (r2.body && r2.body.results) || [];
+    if (!res2.length) break;
+    for (const x of res2) {
+      if (x.date === dateStr && Math.abs(parseFloat(x.total) - amt) < 0.005) same.push(x);
+    }
+    // τα αποτελέσματα είναι φθίνουσα ημερομηνία → αν περάσαμε τη ζητούμενη, σταμάτα
+    const last = res2[res2.length - 1];
+    if (last && String(last.date) < String(dateStr)) break;
+    if (!r2.body || !r2.body.next) break;
+  }
   if (same.length) {
     const mine = same.find((x) => String(x.custom_id || "") === tag);
     if (mine) return { kind: "same-charge", expense: mine };
