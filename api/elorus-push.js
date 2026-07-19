@@ -242,8 +242,12 @@ async function setExpenseSupplier(expenseId, supplierId) {
 
 // Βάζει το αρχείο στο ΠΕΔΙΟ «Απόδειξη» του εξόδου, ώστε να ΦΑΙΝΕΤΑΙ η εικόνα δεξιά
 // όταν ανοίγει το έξοδο στο Elorus (όχι απλώς συνδετήρας/link).
+// ΠΡΟΣΩΡΙΝΑ ΑΝΕΝΕΡΓΟ: το documented path .../receipt/ επιστρέφει 404. Θα ενεργοποιηθεί
+// μόλις εντοπιστεί το πραγματικό endpoint (καταγραφή του αιτήματος που κάνει το UI του Elorus).
+const RECEIPT_PANEL_ENABLED = false;
 async function setExpenseReceipt(expenseId, receiptUrl) {
   try {
+    if (!RECEIPT_PANEL_ENABLED) return { ok: false, why: "disabled" };
     if (!receiptUrl) return { ok: false, why: "no-url" };
     const key = process.env.ELORUS_API_KEY;
     const rf = await fetch(receiptUrl);
