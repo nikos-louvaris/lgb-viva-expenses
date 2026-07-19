@@ -17,6 +17,15 @@ const EKEY = "__config_emails__";
 // Την 1η Αυγούστου: EMAILS_LIVE=true → φεύγουν σε όλους και το πιλοτικό παύει να έχει σημασία.
 const PILOT = String(process.env.EMAILS_PILOT || "975269802823").split(",").map((s) => s.trim()).filter(Boolean);
 
+// ── ΑΥΤΟΜΑΤΗ ΕΝΕΡΓΟΠΟΙΗΣΗ ──
+// Την 1η Αυγούστου 2026 τα email αρχίζουν να φεύγουν σε ΟΛΟΥΣ, μόνα τους.
+// Καμία ενέργεια από κανέναν, καμία μεταβλητή να αλλάξει.
+// (Το EMAILS_LIVE=true παραμένει ως χειροκίνητος διακόπτης, αν χρειαστεί νωρίτερα.)
+const GO_LIVE = "2026-08-01";
+function todayAthens() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Athens" }).format(new Date());
+}
+
 // ── ΚΛΙΜΑΚΩΣΗ ΥΠΕΝΘΥΜΙΣΕΩΝ ──
 // 1η: 30' μετά τη χρέωση · 2η: 1 ώρα μετά την 1η · μετά: το πολύ μία τη μέρα.
 // Οι συγκεντρωτικές (τέλος ημέρας/εβδομάδας/μήνα) φεύγουν πάντα, ανεξάρτητα.
@@ -114,7 +123,8 @@ module.exports = async (req, res) => {
     let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body || "{}"); } catch (e) { body = {}; } }
     body = body || {};
     const action = String(q.action || (body && body.action) || "").toLowerCase();
-    const LIVE = process.env.EMAILS_LIVE === "true";
+    // Ζωντανό είτε χειροκίνητα (EMAILS_LIVE=true) είτε ΑΥΤΟΜΑΤΑ από 1/8/2026 και μετά.
+    const LIVE = process.env.EMAILS_LIVE === "true" || todayAthens() >= GO_LIVE;
 
     // ── ΑΣΦΑΛΕΙΑ ──
     // Χωρίς αυτό, οποιοσδήποτε γνώριζε το URL μπορούσε να στείλει email σε 13 υπαλλήλους.
@@ -138,8 +148,11 @@ module.exports = async (req, res) => {
         έτοιμο_για_αποστολή: !!(process.env.RESEND_API_KEY && withAddr.length),
         RESEND_API_KEY: !!process.env.RESEND_API_KEY,
         MAIL_FROM: FROM,
-        EMAILS_LIVE: LIVE,
-        πιλοτικοί_παραλήπτες: LIVE ? "(όλοι — live)" : PILOT,
+        ζωντανό_σε_όλους: LIVE,
+        αυτόματη_ενεργοποίηση: GO_LIVE,
+        σήμερα: todayAthens(),
+        μέρες_μέχρι_την_έναρξη: Math.max(0, Math.round((new Date(GO_LIVE) - new Date(todayAthens())) / 86400000)),
+        παίρνουν_αληθινό_email_τώρα: LIVE ? "(όλοι)" : PILOT,
         άτομα_στη_βάση: people.length,
         άτομα_με_email: withAddr.length,
         λίστα: people.map((w) => ({
