@@ -4,7 +4,7 @@
 //   ?action=run&type=INSTANT|EOD|WEEKLY|MONTH_END                                  → κανονικό τρέξιμο
 //        ΑΣΦΑΛΕΙΑ: αν EMAILS_LIVE !== "true" → ΤΙΠΟΤΑ δεν φεύγει σε υπάλληλο· ανακατευθύνεται στον CFO (REVIEW_EMAIL) με [TEST → …].
 //        Μόνο όταν οριστεί ρητά EMAILS_LIVE=true αρχίζουν να φεύγουν στους πραγματικούς παραλήπτες.
-const { sbSelect, sbInsert, sbUpdate, personToken } = require("./_viva.js");
+const { sbSelect, sbInsert, sbUpdate, personToken, verifyToken } = require("./_viva.js");
 
 const BASE = "https://lgb-viva-expenses.vercel.app";
 const REVIEW = process.env.REVIEW_EMAIL || "cs@viralpassion.gr";
@@ -91,6 +91,40 @@ module.exports = async (req, res) => {
     const action = String(q.action || (body && body.action) || "").toLowerCase();
     const LIVE = process.env.EMAILS_LIVE === "true";
 
+    // ── ΑΣΦΑΛΕΙΑ ──
+    // Χωρίς αυτό, οποιοσδήποτε γνώριζε το URL μπορούσε να στείλει email σε 13 υπαλλήλους.
+    // Επιτρέπεται μόνο: Vercel cron, ή έγκυρο προσωπικό token, ή EMAILS_SECRET.
+    const isCron = !!req.headers["x-vercel-cron"] || /vercel-cron/i.test(String(req.headers["user-agent"] || ""));
+    const aw = String(body.w || q.w || ""), at = String(body.t || q.t || "");
+    const hasSecret = process.env.EMAILS_SECRET && String(q.secret || body.secret || "") === String(process.env.EMAILS_SECRET);
+    if (!isCron && !hasSecret && !(aw && verifyToken(aw, at))) {
+      return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
+    }
+
+    // ── ΔΙΑΓΝΩΣΤΙΚΟ (δεν στέλνει τίποτα) ──
+    // Λέει αν είναι όλα έτοιμα για να ξεκινήσουν τα email.
+    if (action === "status") {
+      const emails = await readEmails();
+      const people = Object.keys(emails);
+      const withAddr = people.filter((w) => (emails[w].emails || []).length);
+      const mask = (e) => String(e).replace(/^(.).*(@.*)$/, "$1•••$2");
+      return res.status(200).json({
+        ok: true,
+        έτοιμο_για_αποστολή: !!(process.env.RESEND_API_KEY && withAddr.length),
+        RESEND_API_KEY: !!process.env.RESEND_API_KEY,
+        MAIL_FROM: FROM,
+        EMAILS_LIVE: LIVE,
+        άτομα_στη_βάση: people.length,
+        άτομα_με_email: withAddr.length,
+        λίστα: people.map((w) => ({
+          wallet: w,
+          όνομα: emails[w].name || emails[w].firstName || "",
+          κάρτα: emails[w].card || "",
+          emails: (emails[w].emails || []).map(mask),
+        })),
+      });
+    }
+
     if (action === "seed-emails") {
       const map = (body && body.map) || {};
       await writeEmails(map);
@@ -126,11 +160,14 @@ module.exports = async (req, res) => {
         const info = emails[w];
         const e = welcomeEmail(info.firstName || info.name, w, info.card || "");
         for (const to of (info.emails || [])) {
-          const r = await resend(to, e.subject, e.html, e.text);
-          results.push({ person: info.name, to, ok: r.ok, err: r.error });
+          // Ίδια δικλείδα με τις υπενθυμίσεις: χωρίς EMAILS_LIVE=true πάει στον CFO για έλεγχο.
+          let subject = e.subject, actualTo = to;
+          if (!LIVE) { subject = "[TEST → " + to + "] " + e.subject; actualTo = REVIEW; }
+          const r = await resend(actualTo, subject, e.html, e.text);
+          results.push({ person: info.name, to: actualTo, live: LIVE, ok: r.ok, err: r.error });
         }
       }
-      return res.status(200).json({ ok: true, people: Object.keys(emails).length, sent: results.length, results });
+      return res.status(200).json({ ok: true, live: LIVE, people: Object.keys(emails).length, sent: results.length, results });
     }
 
     if (action === "run") {
