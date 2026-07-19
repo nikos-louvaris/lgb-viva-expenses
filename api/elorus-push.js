@@ -371,6 +371,66 @@ module.exports = async (req, res) => {
     let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body || "{}"); } catch (e) { body = {}; } }
     body = body || {};
 
+    // ---- ΔΕΥΤΕΡΟΣ AGENT (read-only): ?audit=1 ----
+    // Ανεξάρτητος έλεγχος των καταχωρήσεων ΜΕΣΑ στο Elorus. Δεν γράφει/σβήνει τίποτα.
+    if (q.audit) {
+      const aw2 = String(body.w || q.w || ""), at2 = String(body.t || q.t || "");
+      const cronOk = !!req.headers["x-vercel-cron"] || /vercel-cron/i.test(String(req.headers["user-agent"] || ""));
+      if (!cronOk && !(aw2 && verifyToken(aw2, at2))) return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
+
+      const byTag = new Map(), expById = new Map();
+      for (let page = 1; page <= 3; page++) {
+        const r = await elorus("GET", `expenses/?page_size=200&page=${page}&ordering=-date`);
+        const rows = (r.body && r.body.results) || [];
+        for (const e of rows) {
+          expById.set(String(e.id), e);
+          const cid = String(e.custom_id || "");
+          if (/^VIVA-/.test(cid)) { if (!byTag.has(cid)) byTag.set(cid, []); byTag.get(cid).push(e); }
+        }
+        if (!r.body || !r.body.next) break;
+      }
+
+      const issues = [];
+      // (1) ΔΙΠΛΕΣ: ίδιο αποτύπωμα σε >1 έξοδα
+      for (const [tag, list] of byTag) {
+        if (list.length > 1) issues.push({ type: "ΔΙΠΛΗ_ΚΑΤΑΧΩΡΗΣΗ", tag, detail: `Η ίδια χρέωση (${tag}) έχει ${list.length} έξοδα`, expenses: list.map((e) => ({ id: e.id, date: e.date, total: e.total })) });
+      }
+      // (2) ΠΙΘΑΝΑ ΔΙΠΛΑ: ίδια ημ/νία + ίδιο ποσό όπου εμπλέκεται δική μας καταχώρηση
+      const seen = new Map();
+      for (const e of expById.values()) {
+        const k = `${e.date}|${parseFloat(e.total).toFixed(2)}`;
+        if (!seen.has(k)) seen.set(k, []); seen.get(k).push(e);
+      }
+      for (const [k, list] of seen) {
+        if (list.length < 2) continue;
+        const ours = list.filter((e) => /^VIVA-/.test(String(e.custom_id || "")));
+        if (!ours.length) continue;
+        const tags = new Set(ours.map((e) => e.custom_id));
+        if (tags.size <= 1) {
+          const [d, a] = k.split("|");
+          issues.push({ type: "ΠΙΘΑΝΟ_ΔΙΠΛΟ", detail: `${list.length} έξοδα ${a}€ στις ${d}`, expenses: list.map((e) => ({ id: e.id, custom_id: e.custom_id || "(χειροκίνητο)", total: e.total })) });
+        }
+      }
+      // (3) Οι χρεώσεις μας: ορφανά / δεν πέρασαν / χωρίς συνημμένο
+      const EXCL = new Set(["901067108914"]);
+      const wsA = await wallets();
+      const mem = (Array.isArray(wsA) ? wsA : []).filter((x) => x.hasIssuedCard && !x.isPrimary && x.friendlyName && x.friendlyName !== "ακυρο" && !EXCL.has(String(x.walletId))).map((x) => String(x.walletId));
+      let completed = 0, pushed = 0;
+      for (const wid of mem) {
+        const raw = await sbSelect("charges", `wallet_id=eq.${wid}&order=occurred_at.desc&limit=1000`);
+        for (const c of dedupCharges(raw || [])) {
+          if (!c.has_receipt || !c.project) continue;
+          completed++;
+          const eid = c.raw && c.raw.elorus_id;
+          if (!eid) { issues.push({ type: "ΔΕΝ_ΠΕΡΑΣΕ", charge: c.id, detail: `${Math.abs(+c.amount).toFixed(2)}€ ${cleanName(c.merchant)} — δεν έχει περάσει στο Elorus` }); continue; }
+          pushed++;
+          if (!expById.has(String(eid))) issues.push({ type: "ΟΡΦΑΝΟ", charge: c.id, expense: eid, detail: "Δείχνει σε έξοδο που δεν υπάρχει πια (διαγράφηκε)" });
+          if (!(c.raw && c.raw.elorus_attachment)) issues.push({ type: "ΧΩΡΙΣ_ΣΥΝΗΜΜΕΝΟ", charge: c.id, expense: eid, detail: "Έξοδο χωρίς συνημμένη απόδειξη" });
+        }
+      }
+      return res.status(200).json({ ok: true, generatedAt: new Date().toISOString(), elorusScanned: expById.size, ourEntries: byTag.size, completedCharges: completed, pushedCharges: pushed, totalIssues: issues.length, issues });
+    }
+
     // ---- ΕΛΕΓΧΟΣ ΠΡΟΜΗΘΕΥΤΗ (read-only): ?supplier=Anthropic ----
     if (q.supplier) {
       const sw = String(body.w || q.w || ""), st = String(body.t || q.t || "");
