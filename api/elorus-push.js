@@ -257,8 +257,27 @@ async function attachReceipt(expenseId, receiptUrl, title) {
 async function pushCharge(c, nameByWallet, opts) {
   opts = opts || {};
   const raw0 = c.raw || {};
-  const existing = opts.force ? null : raw0.elorus_id;
-  // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο, συμπλήρωσέ το (idempotent, χωρίς νέο έξοδο).
+  let existing = opts.force ? null : raw0.elorus_id;
+
+  // ΑΥΤΟ-ΕΠΙΔΙΟΡΘΩΣΗ ΟΡΦΑΝΩΝ: αν ο Κώστας διέγραψε το έξοδο, ο δεσμός είναι νεκρός.
+  // Ψάχνουμε αν υπάρχει άλλο ίδιο έξοδο (αντίγραφο που κρατήθηκε) → ξανασυνδέουμε.
+  // Αν δεν υπάρχει κανένα → καθαρίζουμε και ξαναδημιουργούμε (με τον φύλακα ενεργό).
+  if (existing) {
+    const chk = await elorus("GET", `expenses/${existing}/`);
+    if (chk.status === 404) {
+      const amt0 = Math.abs(+c.amount);
+      const d0 = athDate(c.occurred_at);
+      const alt = await findExistingExpense(c.id, d0, amt0);
+      if (alt && alt.expense && String(alt.expense.id) !== String(existing)) {
+        await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, { elorus_id: alt.expense.id, elorus_attachment: null, elorus_supplier: null }) });
+        return { ok: true, skipped: "relinked", id: alt.expense.id, detail: "Ο παλιός δεσμός ήταν σε διαγραμμένο έξοδο — συνδέθηκε με το υπάρχον" };
+      }
+      existing = null; // δεν βρέθηκε τίποτα → ξαναδημιούργησε
+      delete raw0.elorus_id; delete raw0.elorus_attachment; delete raw0.elorus_supplier;
+    }
+  }
+
+  // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο/προμηθευτής, συμπλήρωσέ το (χωρίς νέο έξοδο).
   if (existing) {
     const fixes = {}; let att = null, supFix = null;
     // 1) λείπει συνημμένο → βάλ' το
