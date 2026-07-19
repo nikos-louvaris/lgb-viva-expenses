@@ -251,24 +251,31 @@ async function setExpenseReceipt(expenseId, receiptUrl) {
     const ct = (rf.headers.get("content-type") || "image/jpeg").split(";")[0];
     const buf = Buffer.from(await rf.arrayBuffer());
     const ext = (ct.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
-    const paths = [`expenses/${expenseId}/receipt/`, `expenses/${expenseId}/receipt`];
-    let last = null;
-    for (const p of paths) {
-      for (const method of ["POST", "PUT"]) {
+    const attempts = [];
+    const combos = [
+      { p: `expenses/${expenseId}/receipt/`, m: "POST", f: "file" },
+      { p: `expenses/${expenseId}/receipt/`, m: "PUT", f: "file" },
+      { p: `expenses/${expenseId}/receipt`, m: "POST", f: "file" },
+      { p: `expenses/${expenseId}/receipt/`, m: "POST", f: "receipt" },
+      { p: `expenses/${expenseId}/receipt/`, m: "POST", f: "document" },
+    ];
+    for (const cb of combos) {
+      try {
         const form = new FormData();
-        form.append("file", new Blob([buf], { type: ct }), `apodeixi.${ext}`);
-        const r = await fetch(`https://api.elorus.com/v1.2/${p}`, {
-          method,
+        form.append(cb.f, new Blob([buf], { type: ct }), `apodeixi.${ext}`);
+        const r = await fetch(`https://api.elorus.com/v1.2/${cb.p}`, {
+          method: cb.m,
           headers: { Authorization: `Token ${key}`, "X-Elorus-Organization": ORG },
           body: form,
         });
-        const txt = await r.text(); let b; try { b = JSON.parse(txt); } catch (e) { b = txt.slice(0, 150); }
-        if (r.status >= 200 && r.status < 300) return { ok: true, via: `${method} ${p}`, body: b };
-        last = { status: r.status, via: `${method} ${p}`, detail: b };
-        if (r.status !== 404 && r.status !== 405) return { ok: false, ...last };
+        const txt = await r.text(); let b; try { b = JSON.parse(txt); } catch (e) { b = String(txt).slice(0, 120); }
+        if (r.status >= 200 && r.status < 300) return { ok: true, via: `${cb.m} ${cb.p} [${cb.f}]`, body: b };
+        attempts.push({ via: `${cb.m} ${cb.p} [${cb.f}]`, status: r.status, detail: b });
+      } catch (e) {
+        attempts.push({ via: `${cb.m} ${cb.p} [${cb.f}]`, err: String(e.message || e) });
       }
     }
-    return { ok: false, ...last };
+    return { ok: false, attempts };
   } catch (e) { return { ok: false, why: String(e.message || e) }; }
 }
 
