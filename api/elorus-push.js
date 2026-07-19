@@ -131,6 +131,50 @@ async function elorus(method, path, body) {
   return { status: r.status, body: b };
 }
 
+// --- ΠΡΟΜΗΘΕΥΤΕΣ ---
+// Τα τιμολόγια (invoices) πρέπει να περνάνε ΜΕ προμηθευτή, όχι «καρφωτά».
+// Κατηγορίες που τυπικά εκδίδουν ΤΙΜΟΛΟΓΙΟ (όχι απλή απόδειξη λιανικής):
+const INVOICE_CATS = new Set([CAT.SOFTWARE, CAT.ADS, CAT.OFFICE]);
+// λέξεις που αφαιρούνται πριν το matching (νομικές μορφές κ.λπ.)
+const LEGALS = /\b(PBC|INC|LLC|LTD|LIMITED|CORP|CO|GMBH|BV|OU|OÜ|SA|AE|ΑΕ|ΕΕ|ΟΕ|ΙΚΕ|IKE|ΜΟΝ|ΜΟΝΟΠΡΟΣΩΠΗ|ΑΝΩΝΥΜΗ|ΕΤΑΙΡΕΙΑ|ΕΤΑΙΡΙΑ|SOFTWARE|SYSTEMS|IRELAND|HELLAS|GREECE)\b/g;
+function normName(s) {
+  return deaccentUp(String(s || ""))
+    .replace(/\|\|/g, " ").replace(/[^A-ZΑ-Ω0-9 ]+/g, " ")
+    .replace(LEGALS, " ").replace(/\s+/g, " ").trim();
+}
+let _contactsCache = null;
+async function allContacts() {
+  if (_contactsCache) return _contactsCache;
+  const out = [];
+  for (let page = 1; page <= 4; page++) {
+    const r = await elorus("GET", `contacts/?page_size=300&page=${page}`);
+    const res = (r.body && r.body.results) || [];
+    out.push(...res);
+    if (!r.body || !r.body.next) break;
+  }
+  _contactsCache = out;
+  return out;
+}
+// Βρίσκει προμηθευτή που ταιριάζει με το όνομα καταστήματος. Επιστρέφει {id,name} ή null.
+async function findSupplier(merchantRaw) {
+  const m = normName(cleanName(merchantRaw));
+  if (!m) return null;
+  const tokens = m.split(" ").filter((x) => x.length >= 4);
+  if (!tokens.length) return null;
+  const list = await allContacts();
+  let best = null;
+  for (const c of list) {
+    const nm = normName(c.company || c.display_name || `${c.first_name || ""} ${c.last_name || ""}`);
+    if (!nm) continue;
+    // δυνατό ταίριασμα: κοινό «σημαντικό» token (π.χ. ANTHROPIC) ή πλήρης περιοχή ονόματος
+    const hit = tokens.some((t) => nm.split(" ").includes(t)) || (m.length >= 5 && nm.includes(m));
+    if (!hit) continue;
+    const score = (c.is_supplier ? 2 : 0) + (nm === m ? 3 : 0);
+    if (!best || score > best.score) best = { id: c.id, name: c.company || c.display_name, score, is_supplier: !!c.is_supplier };
+  }
+  return best;
+}
+
 // Επισυνάπτει το αρχείο απόδειξης στο έξοδο (Elorus API v1.2, multipart/form-data).
 async function attachReceipt(expenseId, receiptUrl, title) {
   try {
@@ -156,9 +200,10 @@ async function attachReceipt(expenseId, receiptUrl, title) {
 }
 
 // Δημιουργεί το expense στο Elorus για μία χρέωση (charge row). Επιστρέφει {ok, id?, skipped?, error?}
-async function pushCharge(c, nameByWallet) {
+async function pushCharge(c, nameByWallet, opts) {
+  opts = opts || {};
   const raw0 = c.raw || {};
-  const existing = raw0.elorus_id;
+  const existing = opts.force ? null : raw0.elorus_id;
   // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο, συμπλήρωσέ το (idempotent, χωρίς νέο έξοδο).
   if (existing) {
     if (raw0.elorus_attachment || !c.receipt_url) return { ok: true, skipped: "already", id: existing };
@@ -181,14 +226,27 @@ async function pushCharge(c, nameByWallet) {
   const meta = [who && `${who}`, card && `κάρτα ••${card}`, grDate(c.occurred_at) && grDate(c.occurred_at)].filter(Boolean).join(", ");
   const desc = `${store}${meta ? ` (${meta})` : ""}${c.receipt_url ? ` · Απόδειξη: ${c.receipt_url}` : ""}`;
 
+  // ΤΙΜΟΛΟΓΙΟ vs ΑΠΛΗ ΑΠΟΔΕΙΞΗ:
+  // Ελέγχουμε ΠΡΩΤΑ τους προμηθευτές. Αν το κατάστημα ταιριάζει σε υπάρχοντα προμηθευτή
+  // (ή είναι κατηγορία που εκδίδει τιμολόγιο), περνάει ΜΕ προμηθευτή — όχι «καρφωτό».
+  let sup = null, supWarn = null;
+  if (opts.supplierId) {
+    sup = { id: String(opts.supplierId), name: "(χειροκίνητο)" };
+  } else {
+    const found = await findSupplier(c.merchant);
+    if (found) sup = found;
+    else if (INVOICE_CATS.has(catId)) supWarn = "ΤΙΜΟΛΟΓΙΟ ΧΩΡΙΣ ΠΡΟΜΗΘΕΥΤΗ — χρειάζεται άνοιγμα προμηθευτή";
+  }
+  const isInvoice = !!sup || INVOICE_CATS.has(catId);
+
   const payload = {
     date,
     currency_code: "EUR",
-    supplier: null,
-    reference: `Viva ••${card} ${c.project}`.slice(0, 60),
+    supplier: sup ? sup.id : null,
+    reference: String(opts.reference || `Viva ••${card} ${c.project}`).slice(0, 60),
     items: [{
       expense_category: catId,
-      description: desc.slice(0, 300),
+      description: String(opts.descr || desc).slice(0, 300),
       amount: amt.toFixed(2),
       taxes: [],
       project: null,
@@ -203,9 +261,9 @@ async function pushCharge(c, nameByWallet) {
   // Επισύναψε την απόδειξη ως αρχείο μέσα στο έξοδο (best-effort).
   const att = c.receipt_url ? await attachReceipt(id, c.receipt_url, `Απόδειξη ${store}`) : { ok: false, why: "no-receipt" };
   // idempotency: κράτα elorus_id + attachment στη χρέωση
-  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null });
+  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null, elorus_supplier: sup ? sup.id : null, elorus_type: isInvoice ? "invoice" : "receipt" });
   await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: newRaw });
-  return { ok: true, id, category: catId, option: opt || null, attachment: att };
+  return { ok: true, id, category: catId, option: opt || null, attachment: att, type: isInvoice ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", supplier: sup, warn: supWarn };
 }
 
 async function walletInfo() {
@@ -226,6 +284,18 @@ module.exports = async (req, res) => {
     const q = req.query || {};
     let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body || "{}"); } catch (e) { body = {}; } }
     body = body || {};
+
+    // ---- ΕΛΕΓΧΟΣ ΠΡΟΜΗΘΕΥΤΗ (read-only): ?supplier=Anthropic ----
+    if (q.supplier) {
+      const sw = String(body.w || q.w || ""), st = String(body.t || q.t || "");
+      if (!sw || !verifyToken(sw, st)) return res.status(403).json({ error: "Μη εξουσιοδοτημένο" });
+      const found = await findSupplier(String(q.supplier));
+      const list = await allContacts();
+      const nm = normName(String(q.supplier));
+      const near = list.filter((c) => normName(c.company || c.display_name || "").includes(nm.split(" ")[0] || "___"))
+        .slice(0, 10).map((c) => ({ id: c.id, name: c.company || c.display_name, is_supplier: !!c.is_supplier, vat: c.vat_number || "" }));
+      return res.status(200).json({ query: q.supplier, match: found, near, totalContacts: list.length });
+    }
 
     // ---- BULK: push όλων των eligible ----
     // Auth: Vercel cron header Ή έγκυρο member token (w,t) — το χρησιμοποιεί το κουμπί & το daily task.
@@ -270,7 +340,12 @@ module.exports = async (req, res) => {
     if (String(c.wallet_id) !== w) return res.status(403).json({ error: "η χρέωση δεν είναι δική σου" });
 
     const nameByWallet = await walletInfo();
-    const r = await pushCharge(c, nameByWallet);
+    const r = await pushCharge(c, nameByWallet, {
+      force: !!(body.force || q.force),
+      supplierId: body.supplierId || q.supplierId,
+      reference: body.reference || q.reference,
+      descr: body.descr || q.descr,
+    });
     if (!r.ok && !r.skipped) return res.status(400).json(r);
     return res.status(200).json(r);
   } catch (err) {
