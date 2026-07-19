@@ -270,6 +270,41 @@ function imgMetrics(dataUrl){return new Promise(res=>{
   }catch(e){res(null);}};
   img.onerror=()=>res(null);img.src=dataUrl;
 });}
+// ── Από το ΙΔΙΟ κείμενο OCR (καμία δεύτερη ανάγνωση): αριθμός & ημερομηνία τιμολογίου ──
+const MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12,
+  ιαν:1,φεβ:2,μαρ:3,απρ:4,μαϊ:5,μαι:5,ιου:0,ιουν:6,ιουλ:7,αυγ:8,σεπ:9,οκτ:10,νοε:11,δεκ:12};
+function pad2(n){return String(n).padStart(2,"0");}
+function mkDate(y,m,d){y=+y;m=+m;d=+d;if(y<100)y+=2000;if(!(m>=1&&m<=12)||!(d>=1&&d<=31)||y<2020||y>2100)return null;return y+"-"+pad2(m)+"-"+pad2(d);}
+function findDate(s){
+  let m;
+  if(m=s.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/)) return mkDate(m[1],m[2],m[3]);       // 2026-07-18
+  if(m=s.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})\b/)) return mkDate(m[3],m[2],m[1]);       // 18/07/2026
+  if(m=s.match(/\b([A-Za-zΑ-Ωα-ω]{3,})\.?\s+(\d{1,2}),?\s+(20\d{2})\b/)){                            // July 18, 2026
+    const mo=MONTHS[m[1].slice(0,3).toLowerCase()]; if(mo) return mkDate(m[3],mo,m[2]);
+  }
+  if(m=s.match(/\b(\d{1,2})\s+([A-Za-zΑ-Ωα-ω]{3,})\.?\s+(20\d{2})\b/)){                              // 18 Ιουλ 2026
+    const mo=MONTHS[m[2].slice(0,3).toLowerCase()]; if(mo) return mkDate(m[3],mo,m[1]);
+  }
+  return null;
+}
+function extractInvoice(text){
+  const t=String(text||""); const T=t.toUpperCase();
+  const isInvoice=/\bINVOICE\b|ΤΙΜΟΛΟΓ/.test(T);
+  let number=null;
+  const pats=[
+    /INVOICE\s*(?:NUMBER|NO\.?|#)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i,
+    /(?:ΑΡ\.?|ΑΡΙΘΜ[ΟΌ]Σ)\s*ΤΙΜΟΛΟΓ[ΙΊ]ΟΥ\s*[:\-]?\s*([A-Z0-9Α-Ω][A-Z0-9Α-Ω\-\/]{2,})/i,
+    /ΤΙΜΟΛΟΓ[ΙΊ]Ο\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i,
+    /\bINVOICE\s*[:#]\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i
+  ];
+  for(const re of pats){const m=t.match(re); if(m){number=m[1].trim().replace(/[.,;:]+$/,""); break;}}
+  // ημερομηνία: προτεραιότητα στη γραμμή «date of issue / ημ. έκδοσης»
+  let date=null; const lines=t.split(/\n+/);
+  for(const ln of lines){ if(/date\s*of\s*issue|issue\s*date|ημερομην[ίι]α\s*[έε]κδοσης|ημ\.?\s*[έε]κδοσης/i.test(ln)){ date=findDate(ln); if(date)break; } }
+  if(!date) for(const ln of lines){ if(/\bdate\b|ημερομην[ίι]α/i.test(ln)){ date=findDate(ln); if(date)break; } }
+  if(!date) date=findDate(t);
+  return {isInvoice,number,date};
+}
 // Έλεγχος ποιότητας + ποσού. Επιστρέφει {ok, issue, check}. Αν ok=false → ΔΕΝ ανεβαίνει, βγαίνει κόκκινο με το ΣΥΓΚΕΚΡΙΜΕΝΟ λάθος.
 async function qualityCheck(dataUrl,amount){
   const met=await imgMetrics(dataUrl);
@@ -283,10 +318,12 @@ async function qualityCheck(dataUrl,amount){
   const dot=a.toFixed(2),comma=dot.replace(".",","),cents=String(Math.round(a*100));
   const compact=text.replace(/[.,\s]/g,"");
   const found=a>0&&(text.includes(dot)||text.includes(comma)||compact.includes(cents));
-  if(found) return {ok:true,check:{verdict:"OK",src:"ocr"}};
+  // Το ίδιο κείμενο δίνει και τα στοιχεία τιμολογίου — μηδέν επιπλέον κόστος.
+  const inv=extractInvoice(text);
+  if(found) return {ok:true,check:{verdict:"OK",src:"ocr",invoice:inv}};
   const alnum=text.replace(/[^0-9A-Za-zΑ-Ωα-ω]/g,"").length;
   const issue = alnum<12 ? "small" : "nototal";
-  return {ok:false,issue,check:{verdict:"UNREADABLE",src:"ocr"}};
+  return {ok:false,issue,check:{verdict:"UNREADABLE",src:"ocr",invoice:inv}};
 }
 const ISSUE_MSG={
   dark:{t:"Πολύ σκοτεινή φωτογραφία",b:"Δεν διαβάζεται γιατί είναι <b>σκοτεινή</b>. Τράβα την σε <b>καλό φως</b> και ξαναδοκίμασε."},
