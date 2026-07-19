@@ -176,6 +176,34 @@ async function findSupplier(merchantRaw) {
   return best;
 }
 
+// Ορίζει προμηθευτή σε ΥΠΑΡΧΟΝ έξοδο. Το Elorus δεν δέχεται PATCH → GET + PUT ολόκληρου.
+async function setExpenseSupplier(expenseId, supplierId) {
+  const cur = await elorus("GET", `expenses/${expenseId}/`);
+  if (cur.status !== 200) return { ok: false, error: `GET ${cur.status}` };
+  const b = cur.body || {};
+  const putBody = {
+    date: b.date,
+    currency_code: b.currency_code,
+    exchange_rate: b.exchange_rate,
+    reference: b.reference || "",
+    custom_id: b.custom_id || "",
+    branch: b.branch || null,
+    supplier: supplierId,
+    items: (b.items || []).map((it) => ({
+      expense_category: it.expense_category,
+      description: it.description,
+      amount: it.amount,
+      taxes: it.taxes || [],
+      project: it.project || null,
+      billable: !!it.billable,
+    })),
+    trackingcategories: (b.trackingcategories || []).map((t) => ({ trackingcategory: t.trackingcategory, option: t.option })),
+  };
+  const pr = await elorus("PUT", `expenses/${expenseId}/`, putBody);
+  if (pr.status >= 200 && pr.status < 300) return { ok: true };
+  return { ok: false, error: `PUT ${pr.status}`, detail: pr.body };
+}
+
 // Επισυνάπτει το αρχείο απόδειξης στο έξοδο (Elorus API v1.2, multipart/form-data).
 async function attachReceipt(expenseId, receiptUrl, title) {
   try {
@@ -217,9 +245,9 @@ async function pushCharge(c, nameByWallet, opts) {
     if (!raw0.elorus_supplier) {
       const found = opts.supplierId ? { id: String(opts.supplierId), name: "(χειροκίνητο)" } : await findSupplier(c.merchant);
       if (found) {
-        const pr = await elorus("PATCH", `expenses/${existing}/`, { supplier: found.id });
-        if (pr.status >= 200 && pr.status < 300) { fixes.elorus_supplier = found.id; supFix = found; }
-        else supFix = { error: `PATCH ${pr.status}`, detail: pr.body };
+        const pr = await setExpenseSupplier(existing, found.id);
+        if (pr.ok) { fixes.elorus_supplier = found.id; supFix = found; }
+        else supFix = Object.assign({ tried: found }, pr);
       } else { fixes.elorus_supplier = "none"; }
     }
     if (Object.keys(fixes).length) await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, fixes) });
