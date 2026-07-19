@@ -157,7 +157,8 @@ async function allContacts() {
 }
 // Βρίσκει προμηθευτή που ταιριάζει με το όνομα καταστήματος. Επιστρέφει {id,name} ή null.
 async function findSupplier(merchantRaw) {
-  const m = normName(cleanName(merchantRaw));
+  // ΚΑΙ το raw ΚΑΙ το καθαρισμένο: το cleanName κόβει prefix πριν το «*» (π.χ. ANTHROPIC*CLAUDE)
+  const m = normName(String(merchantRaw || "") + " " + cleanName(merchantRaw));
   if (!m) return null;
   const tokens = m.split(" ").filter((x) => x.length >= 4);
   if (!tokens.length) return null;
@@ -206,10 +207,24 @@ async function pushCharge(c, nameByWallet, opts) {
   const existing = opts.force ? null : raw0.elorus_id;
   // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο, συμπλήρωσέ το (idempotent, χωρίς νέο έξοδο).
   if (existing) {
-    if (raw0.elorus_attachment || !c.receipt_url) return { ok: true, skipped: "already", id: existing };
-    const att = await attachReceipt(existing, c.receipt_url, `Απόδειξη ${cleanName(c.merchant)}`);
-    if (att.ok) await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, { elorus_attachment: att.id, elorus_att_at: new Date().toISOString() }) });
-    return { ok: true, skipped: "attach-only", id: existing, attachment: att };
+    const fixes = {}; let att = null, supFix = null;
+    // 1) λείπει συνημμένο → βάλ' το
+    if (!raw0.elorus_attachment && c.receipt_url) {
+      att = await attachReceipt(existing, c.receipt_url, `Απόδειξη ${cleanName(c.merchant)}`);
+      if (att.ok) { fixes.elorus_attachment = att.id; fixes.elorus_att_at = new Date().toISOString(); }
+    }
+    // 2) λείπει προμηθευτής → βρες τον και ΔΙΟΡΘΩΣΕ το υπάρχον έξοδο (όχι νέο/διπλό)
+    if (!raw0.elorus_supplier) {
+      const found = opts.supplierId ? { id: String(opts.supplierId), name: "(χειροκίνητο)" } : await findSupplier(c.merchant);
+      if (found) {
+        const pr = await elorus("PATCH", `expenses/${existing}/`, { supplier: found.id });
+        if (pr.status >= 200 && pr.status < 300) { fixes.elorus_supplier = found.id; supFix = found; }
+        else supFix = { error: `PATCH ${pr.status}`, detail: pr.body };
+      } else { fixes.elorus_supplier = "none"; }
+    }
+    if (Object.keys(fixes).length) await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, fixes) });
+    if (!att && !supFix) return { ok: true, skipped: "already", id: existing };
+    return { ok: true, skipped: "updated", id: existing, attachment: att, supplier: supFix };
   }
   if (!c.has_receipt || !c.project) return { ok: false, skipped: "incomplete" };
 
@@ -317,7 +332,7 @@ module.exports = async (req, res) => {
         for (const c of ded) {
           if (!c.has_receipt || !c.project) continue;
           scanned++;
-          if (c.raw && c.raw.elorus_id && c.raw.elorus_attachment) continue; // πλήρως ολοκληρωμένο
+          if (c.raw && c.raw.elorus_id && c.raw.elorus_attachment && c.raw.elorus_supplier) continue; // πλήρως ολοκληρωμένο
           const r = await pushCharge(c, nameByWallet);
           out.push({ id: c.id, ...r });
         }
