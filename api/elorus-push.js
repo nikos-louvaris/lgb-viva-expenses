@@ -240,6 +240,38 @@ async function setExpenseSupplier(expenseId, supplierId) {
   return { ok: false, error: `PUT ${pr.status}`, detail: pr.body };
 }
 
+// Βάζει το αρχείο στο ΠΕΔΙΟ «Απόδειξη» του εξόδου, ώστε να ΦΑΙΝΕΤΑΙ η εικόνα δεξιά
+// όταν ανοίγει το έξοδο στο Elorus (όχι απλώς συνδετήρας/link).
+async function setExpenseReceipt(expenseId, receiptUrl) {
+  try {
+    if (!receiptUrl) return { ok: false, why: "no-url" };
+    const key = process.env.ELORUS_API_KEY;
+    const rf = await fetch(receiptUrl);
+    if (!rf.ok) return { ok: false, why: `fetch ${rf.status}` };
+    const ct = (rf.headers.get("content-type") || "image/jpeg").split(";")[0];
+    const buf = Buffer.from(await rf.arrayBuffer());
+    const ext = (ct.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
+    const paths = [`expenses/${expenseId}/receipt/`, `expenses/${expenseId}/receipt`];
+    let last = null;
+    for (const p of paths) {
+      for (const method of ["POST", "PUT"]) {
+        const form = new FormData();
+        form.append("file", new Blob([buf], { type: ct }), `apodeixi.${ext}`);
+        const r = await fetch(`https://api.elorus.com/v1.2/${p}`, {
+          method,
+          headers: { Authorization: `Token ${key}`, "X-Elorus-Organization": ORG },
+          body: form,
+        });
+        const txt = await r.text(); let b; try { b = JSON.parse(txt); } catch (e) { b = txt.slice(0, 150); }
+        if (r.status >= 200 && r.status < 300) return { ok: true, via: `${method} ${p}`, body: b };
+        last = { status: r.status, via: `${method} ${p}`, detail: b };
+        if (r.status !== 404 && r.status !== 405) return { ok: false, ...last };
+      }
+    }
+    return { ok: false, ...last };
+  } catch (e) { return { ok: false, why: String(e.message || e) }; }
+}
+
 // Επισυνάπτει το αρχείο απόδειξης στο έξοδο (Elorus API v1.2, multipart/form-data).
 async function attachReceipt(expenseId, receiptUrl, title) {
   try {
@@ -290,11 +322,16 @@ async function pushCharge(c, nameByWallet, opts) {
 
   // Υπάρχει ήδη έξοδο: αν λείπει ΜΟΝΟ το συνημμένο/προμηθευτής, συμπλήρωσέ το (χωρίς νέο έξοδο).
   if (existing) {
-    const fixes = {}; let att = null, supFix = null;
+    const fixes = {}; let att = null, supFix = null, rec = null;
     // 1) λείπει συνημμένο → βάλ' το
     if (!raw0.elorus_attachment && c.receipt_url) {
       att = await attachReceipt(existing, c.receipt_url, `Απόδειξη ${cleanName(c.merchant)}`);
       if (att.ok) { fixes.elorus_attachment = att.id; fixes.elorus_att_at = new Date().toISOString(); }
+    }
+    // 1β) λείπει από το πεδίο «Απόδειξη» (δεξιά προβολή) → βάλ' το
+    if (!raw0.elorus_receipt && c.receipt_url) {
+      rec = await setExpenseReceipt(existing, c.receipt_url);
+      if (rec.ok) fixes.elorus_receipt = true;
     }
     // 2) λείπει προμηθευτής → βρες τον και ΔΙΟΡΘΩΣΕ το υπάρχον έξοδο (όχι νέο/διπλό)
     if (!raw0.elorus_supplier) {
@@ -306,8 +343,8 @@ async function pushCharge(c, nameByWallet, opts) {
       } else { fixes.elorus_supplier = "none"; }
     }
     if (Object.keys(fixes).length) await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: Object.assign({}, raw0, fixes) });
-    if (!att && !supFix) return { ok: true, skipped: "already", id: existing };
-    return { ok: true, skipped: "updated", id: existing, attachment: att, supplier: supFix };
+    if (!att && !supFix && !rec) return { ok: true, skipped: "already", id: existing };
+    return { ok: true, skipped: "updated", id: existing, attachment: att, receipt: rec, supplier: supFix };
   }
   if (!c.has_receipt || !c.project) return { ok: false, skipped: "incomplete" };
 
@@ -376,10 +413,12 @@ async function pushCharge(c, nameByWallet, opts) {
   const id = r.body && r.body.id;
   // Επισύναψε την απόδειξη ως αρχείο μέσα στο έξοδο (best-effort).
   const att = c.receipt_url ? await attachReceipt(id, c.receipt_url, `Απόδειξη ${store}`) : { ok: false, why: "no-receipt" };
+  // ΚΑΙ στο πεδίο «Απόδειξη» → να φαίνεται η εικόνα δεξιά στο άνοιγμα του εξόδου
+  const rec = c.receipt_url ? await setExpenseReceipt(id, c.receipt_url) : { ok: false, why: "no-receipt" };
   // idempotency: κράτα elorus_id + attachment στη χρέωση
-  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null, elorus_supplier: sup ? sup.id : null, elorus_type: isInvoice ? "invoice" : "receipt" });
+  const newRaw = Object.assign({}, raw0, { elorus_id: id, elorus_at: new Date().toISOString(), elorus_cat: catId, elorus_option: opt || null, elorus_attachment: att.ok ? att.id : null, elorus_receipt: !!rec.ok, elorus_supplier: sup ? sup.id : null, elorus_type: isInvoice ? "invoice" : "receipt" });
   await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: newRaw });
-  return { ok: true, id, category: catId, option: opt || null, attachment: att, type: isInvoice ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", supplier: sup, warn: supWarn };
+  return { ok: true, id, category: catId, option: opt || null, attachment: att, receipt: rec, type: isInvoice ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", supplier: sup, warn: supWarn };
 }
 
 async function walletInfo() {
