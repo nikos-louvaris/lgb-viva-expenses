@@ -4,7 +4,8 @@
     "api/*.js": { "maxDuration": 60 }
   },
   "crons": [
-    { "path": "/api/elorus-push?all=1", "schedule": "0 19 * * *" }
+    { "path": "/api/elorus-push?all=1", "schedule": "0 19 * * *" },
+    { "path": "/api/send-reminders?action=run&type=auto", "schedule": "0 16 * * *" }
   ],
   "headers": [
     {
