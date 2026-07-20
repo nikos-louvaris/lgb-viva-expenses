@@ -15,9 +15,11 @@ const EKEY = "__config_emails__";
 // Όσο EMAILS_LIVE=false, ΜΟΝΟ αυτές οι κάρτες παίρνουν αληθινά email. Όλοι οι άλλοι
 // συνεχίζουν να ανακατευθύνονται στον CFO με [TEST → …]. Default: Αίας Παρασκευόπουλος.
 // Την 1η Αυγούστου: EMAILS_LIVE=true → φεύγουν σε όλους και το πιλοτικό παύει να έχει σημασία.
-// ΚΕΝΟ = κανένας υπάλληλος δεν λαμβάνει email πριν την 1/8. ΟΛΑ πάνε στον Κώστα με [TEST → …].
-// Αν χρειαστεί δοκιμή σε πραγματικό παραλήπτη, ορίζεται ρητά το EMAILS_PILOT.
-const PILOT = String(process.env.EMAILS_PILOT || "").split(",").map((s) => s.trim()).filter(Boolean);
+// Πριν την 1/8 στέλνουμε ΜΟΝΟ σε αυτούς. Όλοι οι υπόλοιποι: ΚΑΜΙΑ αποστολή, πουθενά.
+// ΔΕΝ προωθούνται στον CFO — ο Κώστας δεν θέλει ενημερώσεις για εκκρεμότητες άλλων.
+const PILOT = String(process.env.EMAILS_PILOT || "975269802823").split(",").map((s) => s.trim()).filter(Boolean);
+// Το σύστημα ξεκίνησε 16/7 — δεν ζητάμε αποδείξεις για χρεώσεις προγενέστερες.
+const START_DATE = "2026-07-16";
 
 // ── ΑΥΤΟΜΑΤΗ ΕΝΕΡΓΟΠΟΙΗΣΗ ──
 // Την 1η Αυγούστου 2026 τα email αρχίζουν να φεύγουν σε ΟΛΟΥΣ, μόνα τους.
@@ -227,6 +229,7 @@ module.exports = async (req, res) => {
       const byW = {};
       (rows || []).forEach((c) => {
         if (String(c.occurred_at || "").slice(0, 7) !== ym) return;
+        if (String(c.occurred_at || "").slice(0, 10) < START_DATE) return; // όχι πριν την έναρξη
         const w = String(c.wallet_id); if (!emails[w]) return;
         const done = (c.has_receipt && c.project) || c.status === "APPROVED_LOSS" || c.status === "INTERNAL";
         if (done) return;
@@ -244,14 +247,14 @@ module.exports = async (req, res) => {
           if (!charges.length) { results.push({ person: info.name, skipped: "δεν ήρθε η ώρα" }); continue; }
         }
 
-        // Πιλοτικό: αληθινό email μόνο στους PILOT όσο EMAILS_LIVE=false.
+        // Πριν την 1/8: στέλνουμε ΜΟΝΟ στους PILOT. Οι υπόλοιποι ΑΓΝΟΟΥΝΤΑΙ τελείως —
+        // κανένα email, ούτε στον υπάλληλο ούτε στον CFO.
         const goesLive = LIVE || PILOT.includes(String(w));
+        if (!goesLive) { results.push({ person: info.name, skipped: "εκτός πιλοτικού — καμία αποστολή" }); continue; }
         const c = compose(info.firstName || info.name || "", w, info.card || "", charges, type);
         for (const to of (info.emails || [])) {
-          let subject = c.subject, actualTo = to;
-          if (!goesLive) { subject = "[TEST → " + to + "] " + subject; actualTo = REVIEW; }
-          const r = await resend(actualTo, subject, c.html, c.text);
-          results.push({ person: info.name, to: actualTo, live: goesLive, pilot: !LIVE && goesLive, charges: charges.length, ok: r.ok, err: r.error });
+          const r = await resend(to, c.subject, c.html, c.text);
+          results.push({ person: info.name, to, live: true, charges: charges.length, ok: r.ok, err: r.error });
         }
         if (type === "INSTANT") for (const ch of charges) await markNudged(ch, now);
       }
