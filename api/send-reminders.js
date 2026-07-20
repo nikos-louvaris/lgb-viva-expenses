@@ -15,7 +15,9 @@ const EKEY = "__config_emails__";
 // Όσο EMAILS_LIVE=false, ΜΟΝΟ αυτές οι κάρτες παίρνουν αληθινά email. Όλοι οι άλλοι
 // συνεχίζουν να ανακατευθύνονται στον CFO με [TEST → …]. Default: Αίας Παρασκευόπουλος.
 // Την 1η Αυγούστου: EMAILS_LIVE=true → φεύγουν σε όλους και το πιλοτικό παύει να έχει σημασία.
-const PILOT = String(process.env.EMAILS_PILOT || "975269802823").split(",").map((s) => s.trim()).filter(Boolean);
+// ΚΕΝΟ = κανένας υπάλληλος δεν λαμβάνει email πριν την 1/8. ΟΛΑ πάνε στον Κώστα με [TEST → …].
+// Αν χρειαστεί δοκιμή σε πραγματικό παραλήπτη, ορίζεται ρητά το EMAILS_PILOT.
+const PILOT = String(process.env.EMAILS_PILOT || "").split(",").map((s) => s.trim()).filter(Boolean);
 
 // ── ΑΥΤΟΜΑΤΗ ΕΝΕΡΓΟΠΟΙΗΣΗ ──
 // Την 1η Αυγούστου 2026 τα email αρχίζουν να φεύγουν σε ΟΛΟΥΣ, μόνα τους.
