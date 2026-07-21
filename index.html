@@ -804,11 +804,15 @@ const DOCTYPES={
 };
 // Ξένο = δεν φέρει ελληνικό ίχνος. Η Viva γράφει τη χώρα στο τέλος (…ATHINA GRC / …SAN FRANCISCO USA).
 function isForeignDoc(c){
-  const m=String(c.merchant||"").toUpperCase();
-  if(/\bGRC\b|ΕΛΛΑ/.test(m))return false;
+  // ΠΡΟΣΟΧΗ: το merchantRaw, όχι το merchant. Το merchant έχει περάσει από καθαρισμό
+  // ονόματος («Claude Sub San Francisco USA» → «Anthropic Claude») και έχει χάσει τη χώρα.
+  const m=String(c.merchantRaw||c.merchant||"").toUpperCase();
   const inv=(c.raw&&c.raw.invoice)||{};
   if(inv.vat)return false;                       // ελληνικό ΑΦΜ τυπωμένο πάνω στο χαρτί
-  return /\b(USA|USD|GBR|IRL|NLD|DEU|FRA|LUX|CYP|ESP|ITA|BEL|SWE|POL|CHE|CAN|AUS)\b/.test(m);
+  if(/\b(USA|USD|GBR|IRL|NLD|DEU|FRA|LUX|CYP|ESP|ITA|BEL|SWE|POL|CHE|CAN|AUS)\b/.test(m))return true;
+  if(/\bGRC\b|ΕΛΛΑ/.test(m))return false;
+  // Γνωστές συνδρομές εξωτερικού — πιάνονται και μετά τον καθαρισμό ονόματος
+  return /ANTHROPIC|CLAUDE|OPENAI|WISPR|NOTION|FIGMA|SLACK|GOOGLE|META PLATFORMS|ADOBE|CANVA|GITHUB|VERCEL|LINEAR|ZOOM|DROPBOX|SPOTIFY|MIDJOURNEY|ELEVENLABS/.test(m);
 }
 // Ίδια λογική με τη δικλείδα του server (docType στο api/elorus-push.js).
 function docTypeOf(c){
@@ -1010,7 +1014,9 @@ async function reloadState(manual){
         const gp=grParts(when);
         ALL_CHARGES.push({id:++idx,dbId:c.id,personId:p.id,day:new Date(when).getDate(),when,
           dm:gp.dm,hm:gp.hm,
-          merchant:c.merchant||"—",amount:+c.amount,receipt:!!c.has_receipt,receiptUrl:c.receipt_url||null,
+          merchant:c.merchant||"—",
+          merchantRaw:c.merchant||"",   // ΑΚΑΘΑΡΙΣΤΟ όνομα: κρατά τη χώρα (…ATHINA GRC / …SAN FRANCISCO USA)
+          amount:+c.amount,receipt:!!c.has_receipt,receiptUrl:c.receipt_url||null,
           project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
           pending:c.status==="PENDING_CLEAR",status:c.status,
           vid:String(c.viva_tx_id||""),
