@@ -287,23 +287,35 @@ function findDate(s){
   }
   return null;
 }
+// αφαίρεση τόνων — αλλιώς «ΤΙΜΟΛΌΓΙΟ» δεν ταιριάζει με «ΤΙΜΟΛΟΓ»
+function deacc(s){return String(s||"").toUpperCase()
+  .replace(/[ΆΑ]/g,"Α").replace(/[ΈΕ]/g,"Ε").replace(/[ΉΗ]/g,"Η").replace(/[ΊΪΐΙ]/g,"Ι")
+  .replace(/[ΌΟ]/g,"Ο").replace(/[ΎΫΰΥ]/g,"Υ").replace(/[ΏΩ]/g,"Ω");}
 function extractInvoice(text){
-  const t=String(text||""); const T=t.toUpperCase();
-  const isInvoice=/\bINVOICE\b|ΤΙΜΟΛΟΓ/.test(T);
+  const t=String(text||""); const T=deacc(t);
+  // ΤΙΜΟΛΟΓΙΟ / ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ / ΑΠΥ = τιμολόγιο. «ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ» = απόδειξη.
+  const isInvoice=/\bINVOICE\b|ΤΙΜΟΛΟΓ|ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ|ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ/.test(T);
   let number=null;
   const pats=[
     /INVOICE\s*(?:NUMBER|NO\.?|#)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i,
-    /(?:ΑΡ\.?|ΑΡΙΘΜ[ΟΌ]Σ)\s*ΤΙΜΟΛΟΓ[ΙΊ]ΟΥ\s*[:\-]?\s*([A-Z0-9Α-Ω][A-Z0-9Α-Ω\-\/]{2,})/i,
-    /ΤΙΜΟΛΟΓ[ΙΊ]Ο\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i,
+    /(?:ΑΡ\.?|ΑΡΙΘΜΟΣ)\s*ΤΙΜΟΛΟΓΙΟΥ\s*[:\-]?\s*([A-Z0-9Α-Ω][A-Z0-9Α-Ω\-\/]{2,})/,
+    /ΑΡ(?:ΙΘΜΟΣ)?\.?\s*(?:ΑΠΟΔΕΙΞΗΣ|ΠΑΡΑΣΤΑΤΙΚΟΥ)\s*[:\-]?\s*([A-Z0-9Α-Ω][A-Z0-9Α-Ω\-\/]{2,})/,
+    /ΤΙΜΟΛΟΓΙΟ\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/,
+    /(?:^|[\s|])ΑΡ(?:ΙΘΜΟΣ)?\.?\s*[:\-]?\s*([A-Z0-9Α-Ω]{0,6}[-\s]?\d{4,})/m,
     /\bINVOICE\s*[:#]\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i
   ];
-  for(const re of pats){const m=t.match(re); if(m){number=m[1].trim().replace(/[.,;:]+$/,""); break;}}
+  for(const re of pats){const m=T.match(re); if(m){number=m[1].trim().replace(/[.,;:]+$/,""); break;}}
   // ημερομηνία: προτεραιότητα στη γραμμή «date of issue / ημ. έκδοσης»
   let date=null; const lines=t.split(/\n+/);
   for(const ln of lines){ if(/date\s*of\s*issue|issue\s*date|ημερομην[ίι]α\s*[έε]κδοσης|ημ\.?\s*[έε]κδοσης/i.test(ln)){ date=findDate(ln); if(date)break; } }
   if(!date) for(const ln of lines){ if(/\bdate\b|ημερομην[ίι]α/i.test(ln)){ date=findDate(ln); if(date)break; } }
   if(!date) date=findDate(t);
-  return {isInvoice,number,date};
+  // ΑΦΜ ΕΚΔΟΤΗ — το κλειδί για να βρεθεί ο σωστός προμηθευτής. Το όνομα της κάρτας
+  // (π.χ. «Shell») συχνά ΔΕΝ είναι ο εκδότης (π.χ. «Ο ΕΡΜΗΣ»). Αγνοούμε το ΑΦΜ της LGB.
+  const OWN="801516655"; let vat=null;
+  const vats=[...t.matchAll(/(?:ΑΦΜ|Α\.Φ\.Μ|AΦM|VAT)\s*[:.\-]?\s*(?:EL)?\s*(\d{9})/gi)].map(m=>m[1]).filter(v=>v!==OWN);
+  if(vats.length) vat=vats[0];
+  return {isInvoice,number,date,vat};
 }
 // Έλεγχος ποιότητας + ποσού. Επιστρέφει {ok, issue, check}. Αν ok=false → ΔΕΝ ανεβαίνει, βγαίνει κόκκινο με το ΣΥΓΚΕΚΡΙΜΕΝΟ λάθος.
 async function qualityCheck(dataUrl,amount){
