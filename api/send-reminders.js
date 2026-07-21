@@ -6,6 +6,58 @@
 //        Μόνο όταν οριστεί ρητά EMAILS_LIVE=true αρχίζουν να φεύγουν στους πραγματικούς παραλήπτες.
 const { sbSelect, sbInsert, sbUpdate, personToken, verifyToken } = require("./_viva.js");
 
+// ── Ξεδίπλωμα διπλοεγγραφών Viva ────────────────────────────────────────────
+// Η Viva γράφει την ίδια αγορά έως και 3 φορές (webhook + δέσμευση + εκκαθάριση).
+// ΧΩΡΙΣ αυτό, ο υπάλληλος κυνηγιέται για αγορές που έχει ήδη τακτοποιήσει ή που
+// έγιναν πριν την έναρξη του συστήματος. Ίδια λογική με my.js / elorus-push.js.
+function athOffMin(d) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Athens", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {});
+  return (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - d.getTime()) / 60000;
+}
+function fixDsTime(iso) { try { const w = new Date(iso); return new Date(w.getTime() - athOffMin(w) * 60000).toISOString(); } catch (e) { return iso; } }
+function dedupCharges(rows) {
+  const norm = (id) => String(id || "").replace(/^AUTH-/, "");
+  const isDup = (m) => /Viva Wallet Card/i.test(m || "");
+  rows = (rows || []).map((c) => isDup(c.merchant) ? { ...c, occurred_at: fixDsTime(c.occurred_at) } : { ...c });
+  const byId = new Map();
+  for (const c of rows) {
+    const k = norm(c.viva_tx_id); const ex = byId.get(k);
+    if (!ex) { byId.set(k, { ...c }); continue; }
+    const m = { ...ex };
+    if (isDup(m.merchant) && !isDup(c.merchant)) m.merchant = c.merchant;
+    if (String(c.occurred_at || "") < String(m.occurred_at || "")) m.occurred_at = c.occurred_at;
+    if (c.has_receipt) { m.has_receipt = true; m.receipt_url = c.receipt_url || m.receipt_url; }
+    if (c.project) m.project = c.project;
+    if (c.raw && (c.raw.rem || c.raw.invoice)) m.raw = Object.assign({}, m.raw || {}, c.raw);
+    if (String(c.status) !== "PENDING_CLEAR") m.status = c.status;
+    byId.set(k, m);
+  }
+  const list = [...byId.values()];
+  const reals = list.filter((c) => !isDup(c.merchant));
+  const dups = list.filter((c) => isDup(c.merchant)).sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || "")));
+  const pool = {}; for (const r of reals) { const k = Math.abs(+r.amount).toFixed(2); (pool[k] = pool[k] || []).push(r); }
+  const used = new Set(); const kept = [];
+  for (const s of dups) {
+    const k = Math.abs(+s.amount).toFixed(2);
+    const cand = (pool[k] || []).filter((r) => !used.has(r) && String(r.occurred_at || "") <= String(s.occurred_at || "")).sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || "")));
+    const r = cand[0];
+    if (r) {
+      used.add(r);
+      if (s.has_receipt && !r.has_receipt) { r.has_receipt = true; r.receipt_url = s.receipt_url; }
+      if (s.project && !r.project) r.project = s.project;
+      if (r.status === "PENDING_CLEAR") r.status = (r.has_receipt && r.project) ? "COMPLETE" : "MISSING_ALL";
+    } else kept.push(s);
+  }
+  const kept2 = new Map();
+  for (const s of kept) {
+    const k = Math.abs(+s.amount).toFixed(2); const ex = kept2.get(k);
+    if (!ex) { kept2.set(k, s); continue; }
+    if (s.has_receipt && !ex.has_receipt) { ex.has_receipt = true; ex.receipt_url = s.receipt_url; }
+    if (s.project && !ex.project) ex.project = s.project;
+  }
+  return [...reals, ...kept2.values()];
+}
+
 const BASE = "https://lgb-viva-expenses.vercel.app";
 const REVIEW = process.env.REVIEW_EMAIL || "cs@viralpassion.gr";
 const FROM = process.env.MAIL_FROM || "Σύστημα Εξόδων <expenses@aiwonderlab.eu>";
@@ -273,15 +325,24 @@ module.exports = async (req, res) => {
       const emails = await readEmails();
       const ym = new Date().toISOString().slice(0, 7);
       const rows = await sbSelect("charges", `select=*&order=occurred_at.desc&limit=1000`);
-      const byW = {};
+      // ΣΕΙΡΑ ΠΟΥ ΜΕΤΡΑΕΙ: πρώτα ομαδοποίηση ανά κάρτα → μετά ξεδίπλωμα διπλοεγγραφών
+      // → και ΜΟΝΟ ΤΟΤΕ φιλτράρισμα μήνα/έναρξης/ολοκληρωμένων. Αν φιλτράρουμε πριν το
+      // dedup, οι εκκαθαρίσεις παλιών αγορών μοιάζουν με νέες εκκρεμότητες.
+      const rawByW = {};
       (rows || []).forEach((c) => {
-        if (String(c.occurred_at || "").slice(0, 7) !== ym) return;
-        if (String(c.occurred_at || "").slice(0, 10) < START_DATE) return; // όχι πριν την έναρξη
         const w = String(c.wallet_id); if (!emails[w]) return;
-        const done = (c.has_receipt && c.project) || c.status === "APPROVED_LOSS" || c.status === "INTERNAL";
-        if (done) return;
-        (byW[w] = byW[w] || []).push(c);
+        (rawByW[w] = rawByW[w] || []).push(c);
       });
+      const byW = {};
+      for (const w of Object.keys(rawByW)) {
+        for (const c of dedupCharges(rawByW[w])) {
+          if (String(c.occurred_at || "").slice(0, 7) !== ym) continue;
+          if (String(c.occurred_at || "").slice(0, 10) < START_DATE) continue; // όχι πριν την έναρξη
+          const done = (c.has_receipt && c.project) || c.status === "APPROVED_LOSS" || c.status === "INTERNAL";
+          if (done) continue;
+          (byW[w] = byW[w] || []).push(c);
+        }
+      }
       const results = [];
       const now = Date.now();
       for (const w of Object.keys(byW)) {
