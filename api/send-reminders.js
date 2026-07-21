@@ -121,6 +121,43 @@ function welcomeEmail(firstName, walletId, card) {
   return { subject, html, text };
 }
 
+// ── ΗΜΕΡΗΣΙΑ ΑΝΑΦΟΡΑ ΣΤΟΝ ΚΩΣΤΑ (μία φορά, στο τέλος της ημέρας) ──
+// Στέλνεται ΜΟΝΟ αν υπάρχει κάτι να πει. Αν όλα είναι καθαρά, δεν φεύγει τίποτα.
+async function sendCfoDigest() {
+  try {
+    const w = "975269802823";
+    const r = await fetch(`${BASE}/api/elorus-push?report=1&w=${w}&t=${personToken(w)}`);
+    if (!r.ok) return { ok: false, error: `report ${r.status}` };
+    const d = await r.json();
+    const pend = d.pending || [], prob = d.problems || [], reg = d.registered || [];
+    if (!pend.length && !prob.length) return { ok: true, skipped: "όλα καθαρά — δεν στάλθηκε" };
+
+    const row = (p, color) => `<tr><td style="padding:6px 10px;white-space:nowrap">${p.date}</td><td style="padding:6px 10px"><b>${p.who}</b></td><td style="padding:6px 10px">${p.store}</td><td style="padding:6px 10px;text-align:right;white-space:nowrap">${fmt(p.amount)}</td><td style="padding:6px 10px;color:${color};font-size:12.5px">${p.reason}</td></tr>`;
+
+    const subject = prob.length
+      ? `🍌 LGB — ${prob.length} θέλουν εσένα, ${pend.length} εκκρεμούν`
+      : `🍌 LGB — ${pend.length} εκκρεμότητες${reg.length ? `, ${reg.length} καταχωρημένα` : ""}`;
+
+    const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#1a1a2e">
+      <h2 style="font-size:18px;margin:0 0 4px">Έξοδα LGB — ημερήσια εικόνα</h2>
+      <p style="color:#666;font-size:13px;margin:0 0 14px">${new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",dateStyle:"full"}).format(new Date())}</p>
+      <p style="font-size:14px">✅ <b>${reg.length}</b> καταχωρημένα στο Elorus &nbsp;·&nbsp; ⏳ <b>${pend.length}</b> εκκρεμούν</p>
+      ${prob.length ? `<div style="background:#fff4f4;border:1px solid #f5b5b5;border-radius:10px;padding:12px 14px;margin:14px 0">
+        <b style="color:#b02020;font-size:14px">⚠️ Θέλουν δική σου ενέργεια (${prob.length})</b>
+        <table style="border-collapse:collapse;width:100%;margin-top:8px;font-size:13px">${prob.map((p)=>row(p,"#b02020")).join("")}</table>
+        <p style="font-size:12.5px;color:#7a3a3a;margin:10px 0 0">Για προμηθευτή που λείπει: Elorus → Επαφές → Προσθήκη → βάλε το <b>ΑΦΜ</b> και τραβάει μόνο του τα στοιχεία από το ΑΑΔΕ.</p>
+      </div>` : ""}
+      ${pend.length ? `<b style="font-size:14px">⏳ Εκκρεμότητες υπαλλήλων</b>
+      <table style="border-collapse:collapse;width:100%;background:#f8f9fb;border-radius:8px;margin-top:8px;font-size:13px">${pend.map((p)=>row(p,"#c0392b")).join("")}</table>
+      <p style="font-size:12.5px;color:#666;margin:10px 0 0">Δεν χρειάζεται να κάνεις κάτι — από 1/8 τα κυνηγούν τα αυτόματα email.</p>` : ""}
+      <p style="font-size:11px;color:#999;margin-top:18px">Αυτόματη αναφορά — Σύστημα Εξόδων LGB. Φεύγει μόνο όταν υπάρχει κάτι να πει.</p></div>`;
+
+    const text = d.text || "";
+    const s = await resend(REVIEW, subject, html, text);
+    return { ok: s.ok, to: REVIEW, pending: pend.length, problems: prob.length, err: s.error };
+  } catch (e) { return { ok: false, error: String(e.message || e) }; }
+}
+
 module.exports = async (req, res) => {
   try {
     const q = req.query || {};
@@ -213,6 +250,12 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, live: LIVE, people: Object.keys(emails).length, sent: results.length, results });
     }
 
+    // Ημερήσια αναφορά στον Κώστα — χειροκίνητα (για δοκιμή)
+    if (action === "cfo") {
+      const r = await sendCfoDigest();
+      return res.status(200).json(r);
+    }
+
     if (action === "run") {
       let type = String(q.type || "INSTANT").toUpperCase();
       // type=auto → αποφασίζει μόνο του βάσει ημερομηνίας (τοπική ώρα Ελλάδας)
@@ -258,7 +301,9 @@ module.exports = async (req, res) => {
         }
         if (type === "INSTANT") for (const ch of charges) await markNudged(ch, now);
       }
-      return res.status(200).json({ ok: true, live: LIVE, pilot: LIVE ? [] : PILOT, type, people: Object.keys(byW).length, sent: results.length, results });
+      // Στο ημερήσιο τρέξιμο (όχι στις γρήγορες υπενθυμίσεις) στέλνουμε ΚΑΙ την αναφορά στον Κώστα.
+      const cfo = type !== "INSTANT" ? await sendCfoDigest() : null;
+      return res.status(200).json({ ok: true, live: LIVE, pilot: LIVE ? [] : PILOT, type, people: Object.keys(byW).length, sent: results.length, cfoDigest: cfo, results });
     }
 
     return res.status(400).json({ error: "άγνωστο action (seed-emails | test | run)" });
