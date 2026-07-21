@@ -136,6 +136,29 @@ async function elorus(method, path, body) {
 // Τα τιμολόγια (invoices) πρέπει να περνάνε ΜΕ προμηθευτή, όχι «καρφωτά».
 // Κατηγορίες που τυπικά εκδίδουν ΤΙΜΟΛΟΓΙΟ (όχι απλή απόδειξη λιανικής):
 const INVOICE_CATS = new Set([CAT.SOFTWARE, CAT.ADS, CAT.OFFICE]);
+
+// ══ Η ΔΙΚΛΕΙΔΑ: ΤΙΜΟΛΟΓΙΟ ή ΑΠΟΔΕΙΞΗ; ══════════════════════════════════════
+// Είναι το ένα Ή το άλλο — ποτέ και τα δύο. Ο τύπος του χαρτιού καθορίζει τη
+// διαδρομή καταχώρησης:
+//   ΤΙΜΟΛΟΓΙΟ → πάει ΜΕ προμηθευτή (ΑΦΜ → όνομα), με αρ. παραστατικού
+//   ΑΠΟΔΕΙΞΗ  → πάει ΚΑΡΦΩΤΑ, ΧΩΡΙΣ προμηθευτή, ακόμα κι αν τύχει να ταιριάζει
+//               κάποιος υπάρχων προμηθευτής με το όνομα του καταστήματος
+// Σειρά απόφασης (η πρώτη που ισχύει, κερδίζει):
+//   1. Ρητή εντολή (opts.type) — ο άνθρωπος υπερισχύει πάντα
+//   2. Το OCR είδε «ΤΙΜΟΛΟΓΙΟ / ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ / INVOICE» πάνω στο χαρτί
+//   3. Κατηγορία που ΠΑΝΤΑ εκδίδει τιμολόγιο (συνδρομές, διαφήμιση, γραφείο) —
+//      καλύπτει τα PDF που δεν περνούν από OCR
+//   4. Το OCR διάβασε το χαρτί και ΔΕΝ είδε τιμολόγιο → απόδειξη λιανικής
+//   5. Δεν ξέρουμε → απόδειξη (ασφαλής επιλογή: δεν λερώνει καρτέλα προμηθευτή)
+function docType(raw0, catId, opts) {
+  const o = String((opts && opts.type) || "").toLowerCase();
+  if (o === "invoice" || o === "τιμολογιο") return "invoice";
+  if (o === "receipt" || o === "αποδειξη") return "receipt";
+  const inv = (raw0 && raw0.invoice) || {};
+  if (inv.isInvoice === true) return "invoice";
+  if (INVOICE_CATS.has(catId)) return "invoice";
+  return "receipt";
+}
 // λέξεις που αφαιρούνται πριν το matching (νομικές μορφές κ.λπ.)
 const LEGALS = /\b(PBC|INC|LLC|LTD|LIMITED|CORP|CO|GMBH|BV|OU|OÜ|SA|AE|ΑΕ|ΕΕ|ΟΕ|ΙΚΕ|IKE|ΜΟΝ|ΜΟΝΟΠΡΟΣΩΠΗ|ΑΝΩΝΥΜΗ|ΕΤΑΙΡΕΙΑ|ΕΤΑΙΡΙΑ|SOFTWARE|SYSTEMS|IRELAND|HELLAS|GREECE)\b/g;
 function normName(s) {
@@ -401,7 +424,9 @@ async function pushCharge(c, nameByWallet, opts) {
     }
     // 2) λείπει προμηθευτής → βρες τον και ΔΙΟΡΘΩΣΕ το υπάρχον έξοδο (όχι νέο/διπλό).
     //    Με ρητό supplierId γίνεται ΠΑΝΤΑ, ακόμα κι αν είχε μαρκαριστεί ως «χωρίς προμηθευτή».
-    if (!raw0.elorus_supplier || raw0.elorus_supplier === "none" || opts.supplierId) {
+    //    ΑΛΛΑ: μόνο αν το χαρτί είναι ΤΙΜΟΛΟΓΙΟ. Απόδειξη λιανικής μένει καρφωτή.
+    const kindEx = docType(raw0, pickCategory(c.merchant), opts);
+    if ((kindEx === "invoice" || opts.supplierId) && (!raw0.elorus_supplier || raw0.elorus_supplier === "none" || opts.supplierId)) {
       const found = opts.supplierId ? { id: String(opts.supplierId), name: "(χειροκίνητο)" }
         : (await findSupplierByVat(opts.vat || (raw0.invoice && raw0.invoice.vat))) || await findSupplier(c.merchant);
       if (found) {
@@ -453,29 +478,33 @@ async function pushCharge(c, nameByWallet, opts) {
   const meta = [who && `${who}`, card && `κάρτα ••${card}`, grDate(c.occurred_at) && grDate(c.occurred_at)].filter(Boolean).join(", ");
   const desc = `${store}${meta ? ` (${meta})` : ""}${c.receipt_url ? ` · Απόδειξη: ${c.receipt_url}` : ""}`;
 
-  // ΤΙΜΟΛΟΓΙΟ vs ΑΠΛΗ ΑΠΟΔΕΙΞΗ:
-  // Ελέγχουμε ΠΡΩΤΑ τους προμηθευτές. Αν το κατάστημα ταιριάζει σε υπάρχοντα προμηθευτή
-  // (ή είναι κατηγορία που εκδίδει τιμολόγιο), περνάει ΜΕ προμηθευτή — όχι «καρφωτό».
+  // ══ ΔΙΚΛΕΙΔΑ: πρώτα ΤΙ είναι το χαρτί, μετά ΠΩΣ περνιέται ══════════════════
+  const kind = docType(raw0, catId, opts);
+  // Ρητός προμηθευτής από άνθρωπο ⇒ είναι τιμολόγιο εξ ορισμού.
+  const isInvoice = kind === "invoice" || !!opts.supplierId;
   let sup = null, supWarn = null;
   if (opts.supplierId) {
+    // Ρητή εντολή ανθρώπου — υπερισχύει (και το κάνει αυτομάτως τιμολόγιο)
     sup = { id: String(opts.supplierId), name: "(χειροκίνητο)" };
-  } else {
-    // 1ο: ΑΦΜ από το χαρτί (αξιόπιστο) · 2ο: όνομα καταστήματος (ενδεικτικό)
+  } else if (isInvoice) {
+    // ΤΙΜΟΛΟΓΙΟ → ΠΑΝΤΑ με προμηθευτή. 1ο ΑΦΜ από το χαρτί (αξιόπιστο),
+    // 2ο όνομα καταστήματος (ενδεικτικό — τα brands συχνά διαφέρουν από τον εκδότη).
     const byVat = await findSupplierByVat(opts.vat || (raw0.invoice && raw0.invoice.vat));
     const found = byVat || await findSupplier(c.merchant);
     if (found) sup = found;
-    else if (INVOICE_CATS.has(catId) || (raw0.invoice && raw0.invoice.isInvoice)) {
-      supWarn = "ΤΙΜΟΛΟΓΙΟ ΧΩΡΙΣ ΠΡΟΜΗΘΕΥΤΗ — χρειάζεται άνοιγμα προμηθευτή" + ((raw0.invoice && raw0.invoice.vat) ? ` (ΑΦΜ ${raw0.invoice.vat})` : "");
-    }
+    else supWarn = "ΤΙΜΟΛΟΓΙΟ ΧΩΡΙΣ ΠΡΟΜΗΘΕΥΤΗ — χρειάζεται άνοιγμα προμηθευτή"
+      + ((raw0.invoice && raw0.invoice.vat) ? ` (ΑΦΜ ${raw0.invoice.vat})` : "");
   }
-  const isInvoice = !!sup || INVOICE_CATS.has(catId);
+  // ΑΠΟΔΕΙΞΗ → sup μένει null: περνάει καρφωτά, ακόμα κι αν υπάρχει προμηθευτής
+  // με παρόμοιο όνομα. Δεν λερώνουμε καρτέλα προμηθευτή με λιανική.
 
   const payload = {
     date,
     currency_code: "EUR",
     custom_id: vivaTag(c.id), // μοναδικό «αποτύπωμα» → φύλακας διπλοεγγραφών
     supplier: sup ? sup.id : null,
-    reference: String(invNo || `Viva ••${card} ${c.project}`).slice(0, 60),
+    // Στο τιμολόγιο μπαίνει ο αρ. παραστατικού· στην απόδειξη το ίχνος της κάρτας.
+    reference: String((isInvoice && invNo) || `Viva ••${card} ${c.project}`).slice(0, 60),
     items: [{
       expense_category: catId,
       description: String(opts.descr || desc).slice(0, 300),
@@ -548,9 +577,16 @@ module.exports = async (req, res) => {
           if (!c.has_receipt) { pending.push({ ...base, reason: "λείπει η απόδειξη" }); continue; }
           if (!c.project) { pending.push({ ...base, reason: "λείπει το project" }); continue; }
           if (r0.elorus_id) {
-            registered.push({ ...base, expense: r0.elorus_id, supplier: r0.elorus_supplier && r0.elorus_supplier !== "none" ? r0.elorus_supplier : null });
-            if (r0.elorus_supplier === "none" && INVOICE_CATS.has(pickCategory(c.merchant))) {
-              problems.push({ ...base, reason: "τιμολόγιο χωρίς προμηθευτή — θέλει άνοιγμα προμηθευτή στο Elorus" });
+            const kindR = docType(r0, pickCategory(c.merchant), {});
+            const supR = r0.elorus_supplier && r0.elorus_supplier !== "none" ? r0.elorus_supplier : null;
+            registered.push({ ...base, expense: r0.elorus_id, type: kindR === "invoice" ? "ΤΙΜΟΛΟΓΙΟ" : "ΑΠΟΔΕΙΞΗ", supplier: supR });
+            // Δικλείδα και στην αναφορά: τιμολόγιο χωρίς προμηθευτή = πρόβλημα.
+            if (kindR === "invoice" && !supR) {
+              problems.push({ ...base, reason: "τιμολόγιο χωρίς προμηθευτή — θέλει άνοιγμα προμηθευτή στο Elorus" + ((r0.invoice && r0.invoice.vat) ? ` (ΑΦΜ ${r0.invoice.vat})` : "") });
+            }
+            // Και το αντίστροφο: απόδειξη λιανικής δεν πρέπει να έχει προμηθευτή.
+            if (kindR === "receipt" && supR) {
+              problems.push({ ...base, reason: "απόδειξη λιανικής καταχωρημένη σε προμηθευτή — πρέπει να είναι καρφωτή" });
             }
             if (!r0.elorus_primary) problems.push({ ...base, reason: "η απόδειξη δεν φαίνεται στη δεξιά προβολή του εξόδου" });
           } else {
@@ -702,6 +738,8 @@ module.exports = async (req, res) => {
       reference: body.reference || q.reference,
       descr: body.descr || q.descr,
       date: body.date || q.date,
+      vat: body.vat || q.vat,
+      type: body.type || q.type,   // "invoice" | "receipt" — χειροκίνητη παράκαμψη
     });
     if (!r.ok && !r.skipped) return res.status(400).json(r);
     return res.status(200).json(r);
