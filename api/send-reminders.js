@@ -123,20 +123,24 @@ function welcomeEmail(firstName, walletId, card) {
 
 // ── ΗΜΕΡΗΣΙΑ ΑΝΑΦΟΡΑ ΣΤΟΝ ΚΩΣΤΑ (μία φορά, στο τέλος της ημέρας) ──
 // Στέλνεται ΜΟΝΟ αν υπάρχει κάτι να πει. Αν όλα είναι καθαρά, δεν φεύγει τίποτα.
-async function sendCfoDigest() {
+// weekly=true → εβδομαδιαία εικόνα με τις εκκρεμότητες όλων (ενημερωτικό).
+// weekly=false → καθημερινό, φεύγει ΜΟΝΟ αν υπάρχει κάτι που θέλει τον Κώστα.
+async function sendCfoDigest(weekly) {
   try {
     const w = "975269802823";
     const r = await fetch(`${BASE}/api/elorus-push?report=1&w=${w}&t=${personToken(w)}`);
     if (!r.ok) return { ok: false, error: `report ${r.status}` };
     const d = await r.json();
-    const pend = d.pending || [], prob = d.problems || [], reg = d.registered || [];
-    if (!pend.length && !prob.length) return { ok: true, skipped: "όλα καθαρά — δεν στάλθηκε" };
+    const prob = d.problems || [], reg = d.registered || [];
+    // Καθημερινά ΔΕΝ στέλνουμε τις εκκρεμότητες των υπαλλήλων — δεν μπορεί να κάνει κάτι.
+    const pend = weekly ? (d.pending || []) : [];
+    if (!prob.length && !pend.length) return { ok: true, skipped: "τίποτα που να θέλει τον Κώστα — δεν στάλθηκε" };
 
     const row = (p, color) => `<tr><td style="padding:6px 10px;white-space:nowrap">${p.date}</td><td style="padding:6px 10px"><b>${p.who}</b></td><td style="padding:6px 10px">${p.store}</td><td style="padding:6px 10px;text-align:right;white-space:nowrap">${fmt(p.amount)}</td><td style="padding:6px 10px;color:${color};font-size:12.5px">${p.reason}</td></tr>`;
 
     const subject = prob.length
-      ? `🍌 LGB — ${prob.length} θέλουν εσένα, ${pend.length} εκκρεμούν`
-      : `🍌 LGB — ${pend.length} εκκρεμότητες${reg.length ? `, ${reg.length} καταχωρημένα` : ""}`;
+      ? `🍌 LGB — ${prob.length} ${prob.length === 1 ? "θέλει" : "θέλουν"} ενέργεια από σένα`
+      : `🍌 LGB — εβδομαδιαία εικόνα: ${pend.length} εκκρεμότητες`;
 
     const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#1a1a2e">
       <h2 style="font-size:18px;margin:0 0 4px">Έξοδα LGB — ημερήσια εικόνα</h2>
@@ -147,9 +151,9 @@ async function sendCfoDigest() {
         <table style="border-collapse:collapse;width:100%;margin-top:8px;font-size:13px">${prob.map((p)=>row(p,"#b02020")).join("")}</table>
         <p style="font-size:12.5px;color:#7a3a3a;margin:10px 0 0">Για προμηθευτή που λείπει: Elorus → Επαφές → Προσθήκη → βάλε το <b>ΑΦΜ</b> και τραβάει μόνο του τα στοιχεία από το ΑΑΔΕ.</p>
       </div>` : ""}
-      ${pend.length ? `<b style="font-size:14px">⏳ Εκκρεμότητες υπαλλήλων</b>
+      ${pend.length ? `<b style="font-size:14px">⏳ Εκκρεμότητες υπαλλήλων (ενημερωτικά)</b>
       <table style="border-collapse:collapse;width:100%;background:#f8f9fb;border-radius:8px;margin-top:8px;font-size:13px">${pend.map((p)=>row(p,"#c0392b")).join("")}</table>
-      <p style="font-size:12.5px;color:#666;margin:10px 0 0">Δεν χρειάζεται να κάνεις κάτι — από 1/8 τα κυνηγούν τα αυτόματα email.</p>` : ""}
+      <p style="font-size:12.5px;color:#666;margin:10px 0 0"><b>Δεν χρειάζεται να κάνεις τίποτα.</b> Τα κυνηγούν τα αυτόματα email στους ίδιους. Στο στέλνω μία φορά την εβδομάδα για να ξέρεις ποιος καθυστερεί.</p>` : ""}
       <p style="font-size:11px;color:#999;margin-top:18px">Αυτόματη αναφορά — Σύστημα Εξόδων LGB. Φεύγει μόνο όταν υπάρχει κάτι να πει.</p></div>`;
 
     const text = d.text || "";
@@ -252,7 +256,7 @@ module.exports = async (req, res) => {
 
     // Ημερήσια αναφορά στον Κώστα — χειροκίνητα (για δοκιμή)
     if (action === "cfo") {
-      const r = await sendCfoDigest();
+      const r = await sendCfoDigest(String(q.weekly || "") === "1");
       return res.status(200).json(r);
     }
 
@@ -302,7 +306,8 @@ module.exports = async (req, res) => {
         if (type === "INSTANT") for (const ch of charges) await markNudged(ch, now);
       }
       // Στο ημερήσιο τρέξιμο (όχι στις γρήγορες υπενθυμίσεις) στέλνουμε ΚΑΙ την αναφορά στον Κώστα.
-      const cfo = type !== "INSTANT" ? await sendCfoDigest() : null;
+      // Καθημερινά: μόνο αν κάτι θέλει τον Κώστα. Παρασκευή/τέλος μήνα: + εικόνα εκκρεμοτήτων.
+      const cfo = type !== "INSTANT" ? await sendCfoDigest(type === "WEEKLY" || type === "MONTH_END") : null;
       return res.status(200).json({ ok: true, live: LIVE, pilot: LIVE ? [] : PILOT, type, people: Object.keys(byW).length, sent: results.length, cfoDigest: cfo, results });
     }
 
