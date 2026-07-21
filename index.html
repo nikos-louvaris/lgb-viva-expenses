@@ -508,7 +508,15 @@ function viewOrphans(sub){
 function viewThekla(sub){
   sub=sub||"people";
   let inner="";
-  if(sub==="projects"){
+  if(sub==="docs"){
+    inner=`<div class="note" style="margin-bottom:12px">📚 <b>Αρχείο παραστατικών — για το myDATA.</b>
+      Τα χαρτιά χωρίζονται στις τρεις κατηγορίες που έχουν διαφορετική αντιμετώπιση:
+      <b>αποδείξεις λιανικής</b> (καρφωτά έξοδα), <b>τιμολόγια Ελλάδας</b> (με ΑΦΜ εκδότη, διασταυρώνονται με myDATA)
+      και <b>ξένα παραστατικά</b> (συνδρομές εξωτερικού — χωρίς ελληνικό ΑΦΜ, θέλουν χειροκίνητη δήλωση).
+      Κάθε κατηγορία κατεβαίνει ξεχωριστά ή όλες μαζί σε φακέλους, με λίστα Excel σε κάθε φάκελο.</div>
+      <div id="archiveBox"></div>`;
+  }
+  else if(sub==="projects"){
     const rows=projectRows();
     inner=`<table><thead><tr><th>Project</th><th class="num">Σύνολο</th><th class="num">Χρεώσεις</th><th>Πληρότητα</th><th>Λήψεις (ανά πάσα στιγμή)</th></tr></thead><tbody>
     ${rows.map(r=>{const pct=Math.round(r.ok/r.n*100);return `<tr><td class="name">${r.project}</td><td class="num">${fmt(r.total)}</td><td class="num">${r.n}</td>
@@ -543,12 +551,14 @@ function viewThekla(sub){
       <b style="align-self:center;font-size:13px">⬇ Κατέβασε όλον τον μήνα:</b>
       <button class="btn btn-ghost btn-sm" onclick="exportAllExcel()">📊 Excel (όλοι)</button>
       <button class="btn btn-ghost btn-sm" onclick="downloadReceiptsZip('month',null,this)">🗂 ZIP όλων των αποδείξεων</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('content').innerHTML=viewThekla('docs');renderArchive()">📚 Χωρισμένα: αποδείξεις / τιμολόγια / ξένα</button>
       <span class="mini" style="align-self:center">— το ZIP περιέχει και λίστα cross-check που δείχνει ποιες αποδείξεις λείπουν vs Viva</span>
     </div>
     <div class="subtabs">
       <button class="subtab ${sub==='people'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('people')">Ανά άτομο — όλος ο μήνας</button>
       <button class="subtab ${sub==='projects'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('projects')">Έξοδα ανά project</button>
       <button class="subtab ${sub==='pending'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('pending')">Εκκρεμότητες & υπενθυμίσεις</button>
+      <button class="subtab ${sub==='docs'?'active':''}" onclick="document.getElementById('content').innerHTML=viewThekla('docs');renderArchive()">📚 Αρχείο παραστατικών</button>
     </div>
     ${inner}</div>`;
 }
@@ -777,6 +787,148 @@ async function runAudit(){
   }catch(e){el.innerHTML="";}
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ΛΟΓΙΣΤΙΚΟ ΑΡΧΕΙΟ ΠΑΡΑΣΤΑΤΙΚΩΝ — για τη Θέκλα (myDATA)
+   Τρεις κατηγορίες, γιατί ο καθένας πάει σε διαφορετικό δρόμο στο myDATA:
+     Α. ΑΠΟΔΕΙΞΕΙΣ ΛΙΑΝΙΚΗΣ  → έξοδο καρφωτό, χωρίς προμηθευτή
+     Β. ΤΙΜΟΛΟΓΙΑ ΕΛΛΑΔΑΣ    → έχουν ΑΦΜ εκδότη, διασταυρώνονται με myDATA
+     Γ. ΞΕΝΑ ΠΑΡΑΣΤΑΤΙΚΑ     → χωρίς ελληνικό ΑΦΜ, δηλώνονται χειροκίνητα
+   ═════════════════════════════════════════════════════════════════════════ */
+const DOCTYPES={
+  receipt:{key:"receipt",  n:1,label:"Αποδείξεις λιανικής",   short:"ΑΠΟΔΕΙΞΕΙΣ",  icon:"🧾",dir:"1_ΑΠΟΔΕΙΞΕΙΣ_ΛΙΑΝΙΚΗΣ",
+           hint:"Σούπερ μάρκετ, φαγητό, πάρκινγκ. Περνιούνται καρφωτά, χωρίς προμηθευτή."},
+  invoice:{key:"invoice",  n:2,label:"Τιμολόγια Ελλάδας",     short:"ΤΙΜΟΛΟΓΙΑ",   icon:"📑",dir:"2_ΤΙΜΟΛΟΓΙΑ_ΕΛΛΑΔΑΣ",
+           hint:"Με ΑΦΜ εκδότη — διασταυρώνονται με το myDATA."},
+  foreign:{key:"foreign",  n:3,label:"Ξένα παραστατικά",      short:"ΞΕΝΑ",        icon:"🌍",dir:"3_XENA_PARASTATIKA",
+           hint:"Συνδρομές εξωτερικού (Anthropic, Wispr κ.λπ.) — χωρίς ελληνικό ΑΦΜ, θέλουν χειροκίνητη δήλωση."},
+};
+// Ξένο = δεν φέρει ελληνικό ίχνος. Η Viva γράφει τη χώρα στο τέλος (…ATHINA GRC / …SAN FRANCISCO USA).
+function isForeignDoc(c){
+  const m=String(c.merchant||"").toUpperCase();
+  if(/\bGRC\b|ΕΛΛΑ/.test(m))return false;
+  const inv=(c.raw&&c.raw.invoice)||{};
+  if(inv.vat)return false;                       // ελληνικό ΑΦΜ τυπωμένο πάνω στο χαρτί
+  return /\b(USA|USD|GBR|IRL|NLD|DEU|FRA|LUX|CYP|ESP|ITA|BEL|SWE|POL|CHE|CAN|AUS)\b/.test(m);
+}
+// Ίδια λογική με τη δικλείδα του server (docType στο api/elorus-push.js).
+function docTypeOf(c){
+  const r=c.raw||{},inv=r.invoice||{};
+  let isInv=false;
+  if(r.elorus_type==="invoice")isInv=true;                              // ό,τι αποφάσισε το push
+  else if(r.elorus_type==="receipt")isInv=(inv.isInvoice===true);
+  else if(inv.isInvoice===true)isInv=true;
+  else if(r.elorus_supplier&&r.elorus_supplier!=="none")isInv=true;
+  if(!isInv)return DOCTYPES.receipt;
+  return isForeignDoc(c)?DOCTYPES.foreign:DOCTYPES.invoice;
+}
+let ARCHIVE_WHO="all";     // "all" ή personId
+let ARCHIVE_OPEN="";       // ποια κατηγορία είναι ανοιχτή
+
+function archiveList(){
+  let l=CHARGES.filter(c=>c.receipt&&c.receiptUrl&&!c.internal);
+  if(ARCHIVE_WHO!=="all")l=l.filter(c=>String(c.personId)===String(ARCHIVE_WHO));
+  return l.sort((a,b)=>String(a.when||"").localeCompare(String(b.when||"")));
+}
+function archiveGroups(){
+  const g={receipt:[],invoice:[],foreign:[]};
+  for(const c of archiveList())g[docTypeOf(c).key].push(c);
+  return g;
+}
+function renderArchive(){
+  const host=document.getElementById("archiveBox"); if(!host)return;
+  const g=archiveGroups(),tot=Object.values(g).reduce((s,a)=>s+a.length,0);
+  const opts=['<option value="all">Όλοι οι υπάλληλοι</option>']
+    .concat(PEOPLE.map(p=>`<option value="${p.id}"${String(ARCHIVE_WHO)===String(p.id)?" selected":""}>${p.name}</option>`)).join("");
+  const cards=Object.values(DOCTYPES).sort((a,b)=>a.n-b.n).map(t=>{
+    const list=g[t.key],sum=list.reduce((s,c)=>s+c.amount,0),open=ARCHIVE_OPEN===t.key;
+    return `<div style="border:1px solid ${open?"#8ab":"#e2e6ea"};border-radius:11px;background:#fff;overflow:hidden">
+      <div style="padding:12px 14px;cursor:pointer" onclick="ARCHIVE_OPEN=ARCHIVE_OPEN==='${t.key}'?'':'${t.key}';renderArchive()">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div><b style="font-size:14px">${t.icon} ${t.label}</b>
+            <div class="mini" style="margin-top:3px;color:#6b7680">${t.hint}</div></div>
+          <div style="text-align:right;white-space:nowrap">
+            <div style="font-size:19px;font-weight:700">${list.length}</div>
+            <div class="mini">${sum.toFixed(2)} €</div></div>
+        </div>
+        <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm" onclick="downloadDocs('${t.key}',this)" ${list.length?"":"disabled"}>⬇ Κατέβασμα (${list.length})</button>
+          <button class="btn btn-ghost btn-sm" onclick="ARCHIVE_OPEN=ARCHIVE_OPEN==='${t.key}'?'':'${t.key}';renderArchive()">${open?"▲ Κλείσιμο":"▼ Δες τη λίστα"}</button>
+        </div>
+      </div>
+      ${open?`<div style="border-top:1px solid #eef1f3;max-height:330px;overflow:auto">
+        <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+          <tr style="background:#f7f9fa;position:sticky;top:0">
+            <th style="text-align:left;padding:6px 9px">Ημ/νία</th><th style="text-align:left;padding:6px 9px">Κατάστημα</th>
+            <th style="text-align:right;padding:6px 9px">Ποσό</th><th style="text-align:left;padding:6px 9px">Άτομο</th>
+            <th style="text-align:left;padding:6px 9px">Project</th>${t.key!=="receipt"?'<th style="text-align:left;padding:6px 9px">ΑΦΜ / Αρ.</th>':""}
+            <th style="padding:6px 9px"></th></tr>
+          ${list.map(c=>{const p=person(c.personId),inv=(c.raw&&c.raw.invoice)||{};
+            return `<tr style="border-top:1px solid #f0f3f5">
+              <td style="padding:6px 9px;white-space:nowrap">${c.dm||""}</td>
+              <td style="padding:6px 9px">${c.merchant}</td>
+              <td style="padding:6px 9px;text-align:right;white-space:nowrap">${c.amount.toFixed(2)} €</td>
+              <td style="padding:6px 9px">${p?p.name:""}</td>
+              <td style="padding:6px 9px">${c.project||""}</td>
+              ${t.key!=="receipt"?`<td style="padding:6px 9px;white-space:nowrap">${inv.vat?"ΑΦΜ "+inv.vat:""}${inv.vat&&inv.number?" · ":""}${inv.number||""}</td>`:""}
+              <td style="padding:6px 9px;text-align:right"><a href="${c.receiptUrl}" target="_blank" rel="noopener" class="mini">άνοιγμα ↗</a></td></tr>`;
+          }).join("")||`<tr><td colspan="7" class="empty" style="padding:14px">Κανένα παραστατικό εδώ</td></tr>`}
+        </table></div>`:""}
+    </div>`;
+  }).join("");
+  host.innerHTML=`
+    <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:11px">
+      <select onchange="ARCHIVE_WHO=this.value;ARCHIVE_OPEN='';renderArchive()"
+        style="padding:7px 10px;border:1px solid #d6dbe0;border-radius:8px;font-size:13px;font-family:inherit">${opts}</select>
+      <button class="btn btn-ghost btn-sm" onclick="downloadDocs('all',this)" ${tot?"":"disabled"}>📦 Κατέβασε και τα ${tot} χωρισμένα σε φακέλους</button>
+      <span class="mini" style="color:#6b7680">Μήνας: ${SELECTED_MONTH}</span>
+    </div>
+    <div style="display:grid;gap:10px">${cards}</div>`;
+}
+// Κατέβασμα ZIP: μία κατηγορία ή όλες σε ξεχωριστούς φακέλους + λίστα Excel για κάθε μία.
+async function downloadDocs(which,btn){
+  if(typeof JSZip==="undefined"){toast("Το εργαλείο ZIP φορτώνει ακόμα — δοκίμασε ξανά σε λίγο");return;}
+  const g=archiveGroups();
+  const keys=which==="all"?["receipt","invoice","foreign"]:[which];
+  const total=keys.reduce((s,k)=>s+g[k].length,0);
+  if(!total){toast("Δεν υπάρχει τίποτα εδώ για κατέβασμα");return;}
+  const who=ARCHIVE_WHO==="all"?"OLOI":((person(ARCHIVE_WHO)||{}).name||ARCHIVE_WHO);
+  const oldTxt=btn?btn.textContent:""; if(btn){btn.disabled=true;btn.textContent="⏳ Ετοιμάζω…";}
+  toast("Κατεβάζω "+total+" παραστατικά…");
+  try{
+    const zip=new JSZip();
+    const esc=v=>{v=String(v==null?"":v);return /[";\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    const safe=s=>String(s||"").replace(/[^0-9A-Za-zΑ-Ωα-ωάέήίόύώϊϋ._-]+/g,"_").slice(0,40);
+    const HEAD=["Ημ/νία","Ώρα","Είδος","Κατάστημα","Καθαρή αξία + ΦΠΑ (€)","ΑΦΜ εκδότη","Αρ. παραστατικού","Ημ/νία παραστατικού","Άτομο","Project","Αρχείο","Elorus"];
+    const master=[HEAD.slice()]; let okc=0,failed=0;
+    for(const k of keys){
+      const t=DOCTYPES[k],list=g[k]; if(!list.length)continue;
+      const rows=[HEAD.slice()]; let i=0;
+      for(const c of list){i++;
+        const p=person(c.personId),inv=(c.raw&&c.raw.invoice)||{};
+        const dd=(c.dm||"").replace(/\//g,"-"),hh=(c.hm||"").replace(/:/g,"");
+        const ext=/\.pdf(\?|$)/i.test(c.receiptUrl||"")?"pdf":"jpg";
+        const fname=String(i).padStart(2,"0")+"_"+dd+"_"+hh+"_"+safe(c.merchant)+"_"+c.amount.toFixed(2)+"e."+ext;
+        let stored="";
+        try{const r=await fetch(c.receiptUrl);const b=await r.blob();
+            zip.file((keys.length>1?t.dir+"/":"")+fname,b);stored=fname;okc++;}
+        catch(e){stored="⚠ ΔΕΝ ΚΑΤΕΒΗΚΕ";failed++;}
+        const row=[c.dm||"",c.hm||"",t.short,c.merchant,c.amount.toFixed(2),inv.vat||"",inv.number||"",
+                   inv.date||"",p?p.name:"",c.project||"",stored,(c.raw&&c.raw.elorus_id)?"καταχωρημένο":"—"];
+        rows.push(row); master.push(row);
+      }
+      zip.file((keys.length>1?t.dir+"/":"")+"_ΛΙΣΤΑ_"+t.short+"_"+SELECTED_MONTH+".csv",
+               "﻿"+rows.map(r=>r.map(esc).join(";")).join("\r\n"));
+    }
+    if(keys.length>1)zip.file("_ΣΥΝΟΛΙΚΗ_ΛΙΣΤΑ_"+SELECTED_MONTH+".csv","﻿"+master.map(r=>r.map(esc).join(";")).join("\r\n"));
+    const blob=await zip.generateAsync({type:"blob"});
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download="Parastatika_"+(which==="all"?"OLA":DOCTYPES[which].short)+"_"+safe(who)+"_"+SELECTED_MONTH+".zip";
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+    toast("✅ Έτοιμο: "+okc+"/"+total+" παραστατικά"+(failed?" ("+failed+" δεν κατέβηκαν)":"")+" + λίστα για Excel");
+  }catch(e){toast("⚠️ Πρόβλημα στο κατέβασμα — δοκίμασε ξανά");}
+  if(btn){btn.disabled=false;btn.textContent=oldTxt;}
+}
+
 // Κατέβασμα ΟΛΩΝ των αποδείξεων σε ΕΝΑ ZIP (ανά άτομο / ανά project / όλος ο μήνας)
 // + λίστα cross-check (_ΛΙΣΤΑ.csv) που δείχνει και ποιες αποδείξεις ΛΕΙΠΟΥΝ σε σχέση με τη Viva.
 async function downloadReceiptsZip(kind,id,btn){
@@ -860,6 +1012,7 @@ async function reloadState(manual){
           project:c.project||null,comment:c.comment||"",walletId:c.wallet_id,
           pending:c.status==="PENDING_CLEAR",status:c.status,
           vid:String(c.viva_tx_id||""),
+          raw:c.raw||{},   // στοιχεία παραστατικού (τύπος, ΑΦΜ, αρ., ημ/νία) + σύνδεση Elorus
           internal:c.project===INTERNAL,approvedLoss:c.status==="APPROVED_LOSS"});
       });
       // DEDUP: (1) ένωσε ίδια συναλλαγή, (2) ρίξε cron-εκκαθαρίσεις σε προγενέστερη πραγματική ίδιου ποσού, (3) ένωσε ορφανές cron-εγγραφές.
@@ -870,6 +1023,7 @@ async function reloadState(manual){
          if(isDup(ex.merchant)&&!isDup(c.merchant)) ex.merchant=c.merchant;
          if(String(c.when||"")<String(ex.when||"")){ex.when=c.when;ex.dm=c.dm;ex.hm=c.hm;ex.day=c.day;}
          if(c.receipt){ex.receipt=true;ex.receiptUrl=c.receiptUrl||ex.receiptUrl;}
+         if(c.raw&&(c.raw.invoice||c.raw.elorus_id))ex.raw=Object.assign({},ex.raw||{},c.raw);
          if(c.project){ex.project=c.project;ex.internal=c.internal;}
          if(String(c.status)!=="PENDING_CLEAR"){ex.status=c.status;ex.pending=false;}
        }
@@ -883,6 +1037,7 @@ async function reloadState(manual){
          const r=cand[0];
          if(r){used.add(r);
            if(s.receipt&&!r.receipt){r.receipt=true;r.receiptUrl=s.receiptUrl;}
+           if(s.raw&&(s.raw.invoice||s.raw.elorus_id))r.raw=Object.assign({},r.raw||{},s.raw);
            if(s.project&&!r.project){r.project=s.project;r.internal=s.project===INTERNAL;}
            r.pending=false;
          } else kept.push(s);}
