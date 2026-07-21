@@ -156,6 +156,20 @@ async function allContacts() {
   _contactsCache = out;
   return out;
 }
+// ΑΦΜ → προμηθευτής. Ο ΠΙΟ ΑΞΙΟΠΙΣΤΟΣ τρόπος: το όνομα της κάρτας είναι το brand
+// (π.χ. «Shell»), ενώ ο εκδότης του τιμολογίου είναι άλλη οντότητα (π.χ. «Ο ΕΡΜΗΣ»).
+// Μόνο το ΑΦΜ πάνω στο χαρτί τους συνδέει.
+async function findSupplierByVat(vat) {
+  const v = String(vat || "").replace(/[^0-9]/g, "");
+  if (v.length < 9) return null;
+  const list = await allContacts();
+  for (const c of list) {
+    const cv = String(c.vat_number || "").replace(/[^0-9]/g, "");
+    if (cv && cv === v) return { id: c.id, name: c.company || c.display_name, vat: c.vat_number, is_supplier: !!c.is_supplier, via: "ΑΦΜ" };
+  }
+  return null;
+}
+
 // Βρίσκει προμηθευτή που ταιριάζει με το όνομα καταστήματος. Επιστρέφει {id,name} ή null.
 async function findSupplier(merchantRaw) {
   // ΚΑΙ το raw ΚΑΙ το καθαρισμένο: το cleanName κόβει prefix πριν το «*» (π.χ. ANTHROPIC*CLAUDE)
@@ -385,9 +399,11 @@ async function pushCharge(c, nameByWallet, opts) {
         if (att.primary) fixes.elorus_primary = true;
       }
     }
-    // 2) λείπει προμηθευτής → βρες τον και ΔΙΟΡΘΩΣΕ το υπάρχον έξοδο (όχι νέο/διπλό)
-    if (!raw0.elorus_supplier) {
-      const found = opts.supplierId ? { id: String(opts.supplierId), name: "(χειροκίνητο)" } : await findSupplier(c.merchant);
+    // 2) λείπει προμηθευτής → βρες τον και ΔΙΟΡΘΩΣΕ το υπάρχον έξοδο (όχι νέο/διπλό).
+    //    Με ρητό supplierId γίνεται ΠΑΝΤΑ, ακόμα κι αν είχε μαρκαριστεί ως «χωρίς προμηθευτή».
+    if (!raw0.elorus_supplier || raw0.elorus_supplier === "none" || opts.supplierId) {
+      const found = opts.supplierId ? { id: String(opts.supplierId), name: "(χειροκίνητο)" }
+        : (await findSupplierByVat(opts.vat || (raw0.invoice && raw0.invoice.vat))) || await findSupplier(c.merchant);
       if (found) {
         const pr = await setExpenseSupplier(existing, found.id);
         if (pr.ok) { fixes.elorus_supplier = found.id; supFix = found; }
@@ -444,9 +460,13 @@ async function pushCharge(c, nameByWallet, opts) {
   if (opts.supplierId) {
     sup = { id: String(opts.supplierId), name: "(χειροκίνητο)" };
   } else {
-    const found = await findSupplier(c.merchant);
+    // 1ο: ΑΦΜ από το χαρτί (αξιόπιστο) · 2ο: όνομα καταστήματος (ενδεικτικό)
+    const byVat = await findSupplierByVat(opts.vat || (raw0.invoice && raw0.invoice.vat));
+    const found = byVat || await findSupplier(c.merchant);
     if (found) sup = found;
-    else if (INVOICE_CATS.has(catId)) supWarn = "ΤΙΜΟΛΟΓΙΟ ΧΩΡΙΣ ΠΡΟΜΗΘΕΥΤΗ — χρειάζεται άνοιγμα προμηθευτή";
+    else if (INVOICE_CATS.has(catId) || (raw0.invoice && raw0.invoice.isInvoice)) {
+      supWarn = "ΤΙΜΟΛΟΓΙΟ ΧΩΡΙΣ ΠΡΟΜΗΘΕΥΤΗ — χρειάζεται άνοιγμα προμηθευτή" + ((raw0.invoice && raw0.invoice.vat) ? ` (ΑΦΜ ${raw0.invoice.vat})` : "");
+    }
   }
   const isInvoice = !!sup || INVOICE_CATS.has(catId);
 

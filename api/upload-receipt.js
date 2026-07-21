@@ -104,8 +104,8 @@ module.exports = async (req, res) => {
       // Στοιχεία τιμολογίου (αρ. + ημ/νία έκδοσης) από το OCR του ανεβάσματος — ΜΙΑ φορά,
       // εδώ. Το Elorus push τα χρησιμοποιεί έτοιμα, χωρίς δεύτερη αναγνώριση.
       const inv = chk && chk.invoice;
-      if (inv && (inv.number || inv.date)) {
-        patch.raw.invoice = { number: inv.number || null, date: inv.date || null, isInvoice: !!inv.isInvoice, at: new Date().toISOString() };
+      if (inv && (inv.number || inv.date || inv.vat)) {
+        patch.raw.invoice = { number: inv.number || null, date: inv.date || null, vat: inv.vat || null, isInvoice: !!inv.isInvoice, at: new Date().toISOString() };
       }
     }
     if (project !== undefined) patch.project = project || null;
