@@ -389,6 +389,23 @@ async function attachReceipt(expenseId, receiptUrl, title) {
 async function pushCharge(c, nameByWallet, opts) {
   opts = opts || {};
   const raw0 = c.raw || {};
+  // Αν ο άνθρωπος ορίσει ρητά τον τύπο (ή δώσει προμηθευτή), ΑΠΟΘΗΚΕΥΣΕ την απόφαση
+  // πάνω στη χρέωση — ώστε ο ελεγκτής και κάθε επόμενο πέρασμα να τη σέβονται.
+  // Χρειάζεται για χαρτιά που ανέβηκαν πριν βελτιωθεί η αναγνώριση.
+  {
+    const explicit = String(opts.type || "").toLowerCase();
+    const wantInv = explicit === "invoice" || explicit === "τιμολογιο" || !!opts.supplierId;
+    const wantRec = explicit === "receipt" || explicit === "αποδειξη";
+    if (wantInv || wantRec) {
+      const cur = raw0.invoice || {};
+      if (cur.isInvoice !== wantInv) {
+        raw0.invoice = Object.assign({}, cur, { isInvoice: wantInv, setBy: "χειροκίνητα", at: new Date().toISOString() });
+        if (opts.reference) raw0.invoice.number = String(opts.reference);
+        if (opts.vat) raw0.invoice.vat = String(opts.vat);
+        await sbUpdate("charges", `id=eq.${encodeURIComponent(c.id)}`, { raw: raw0 });
+      }
+    }
+  }
   let existing = opts.force ? null : raw0.elorus_id;
 
   // ΑΥΤΟ-ΕΠΙΔΙΟΡΘΩΣΗ ΟΡΦΑΝΩΝ: αν ο Κώστας διέγραψε το έξοδο, ο δεσμός είναι νεκρός.
