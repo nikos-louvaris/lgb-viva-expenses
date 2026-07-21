@@ -825,7 +825,9 @@ let ARCHIVE_WHO="all";     // "all" ή personId
 let ARCHIVE_OPEN="";       // ποια κατηγορία είναι ανοιχτή
 
 function archiveList(){
-  let l=CHARGES.filter(c=>c.receipt&&c.receiptUrl&&!c.internal);
+  // ΟΛΑ τα παραστατικά με χαρτί — και τα εσωτερικά (LGB HOME): για τη λογιστική
+  // και το myDATA μετράνε κανονικά, δεν είναι «εκτός».
+  let l=CHARGES.filter(c=>c.receipt&&c.receiptUrl);
   if(ARCHIVE_WHO!=="all")l=l.filter(c=>String(c.personId)===String(ARCHIVE_WHO));
   return l.sort((a,b)=>String(a.when||"").localeCompare(String(b.when||"")));
 }
