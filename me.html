@@ -24,7 +24,9 @@
   .row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
   .amt{font-size:20px;font-weight:800}
   .mer{font-size:14px;font-weight:600}
-  .when{font-size:12px;color:#78809a;margin-top:2px}
+  .when{font-size:12px;color:#78809a;margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .when .dpart{color:#6b7280;font-weight:600}
+  .when .tpart{font-size:13px;font-weight:800;color:#2647c4;background:#eaf0ff;border:1px solid #cfdcff;border-radius:7px;padding:2px 8px;letter-spacing:.2px}
   .pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap}
   .p-ok{background:#e6f6ec;color:var(--ok)}
   .p-bad{background:#fde8e6;color:var(--bad)}
@@ -124,7 +126,15 @@ function showVerdict(chk){
 }
 function closeVerdict(){const m=document.getElementById("verdictModal");if(m)m.style.display="none";}
 const warnIfBad=showVerdict; // συμβατότητα
-function fdate(iso){try{const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));const g=t=>(p.find(x=>x.type===t)||{}).value||"00";return g("day")+"/"+g("month")+" "+g("hour")+":"+g("minute");}catch(e){return "";}}
+// Ημερομηνία + ΩΡΑ ευδιάκριτα: «Δευ 21/07 · 🕐 19:34» (η ώρα σε έντονο μπλε badge).
+function fdate(iso){try{
+  const p=new Intl.DateTimeFormat("el-GR",{timeZone:"Europe/Athens",weekday:"short",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));
+  const g=t=>(p.find(x=>x.type===t)||{}).value||"";
+  const wd=g("weekday").replace(".","");
+  const date=`${wd} ${g("day")}/${g("month")}`;
+  const time=`${g("hour")}:${g("minute")}`;
+  return `<span class="dpart">${date}</span> <span class="tpart">🕐 ${time}</span>`;
+}catch(e){return "";}}
 
 let ALLCH=[], SM=null, NAME="", CARD="", SHOW_DONE=false, ACTIVE=null;
 // Επικόλληση (Ctrl/⌘+V) print screen σε υπολογιστή — ανεβαίνει στη χρέωση που άγγιξες τελευταία.
@@ -169,7 +179,10 @@ function draw(){
   const [y,mo]=SM.split("-");
   document.getElementById("mlabel").textContent=MN[+mo-1]+" "+y;
   document.getElementById("sub").textContent="Κάρτα •••• "+CARD+" — αν το όνομα δεν είναι σωστό, ενημέρωσέ μας";
-  const all=ALLCH.filter(c=>String(c.occurred_at||"").slice(0,7)===SM);
+  // Νεότερη χρέωση ΠΑΝΩ-ΠΑΝΩ: όταν ανοίγει ο υπάλληλος την εφαρμογή, βλέπει πρώτη
+  // την πιο πρόσφατη αγορά (το dedup μπορεί να αλλάξει τη σειρά, γι' αυτό ταξινομούμε εδώ).
+  const all=ALLCH.filter(c=>String(c.occurred_at||"").slice(0,7)===SM)
+    .sort((a,b)=>String(b.occurred_at||"").localeCompare(String(a.occurred_at||"")));
   const isDone=c=>c.has_receipt&&c.project;
   const total=all.reduce((s,c)=>s+c.amount,0);
   const doneN=all.filter(isDone).length;
@@ -194,7 +207,7 @@ function draw(){
     list.innerHTML=`<div class="empty">✅ Μπράβο! Όλα τακτοποιημένα — ${doneN}/${all.length} αποδείξεις ανεβασμένες. Καμία εκκρεμότητα 🍌<br><span style="font-size:12px;color:#98a">Θες να δεις ή να αλλάξεις κάποια; Πάτησε «👁 Δες & τις τακτοποιημένες» πιο πάνω.</span></div>`;
     return;
   }
-  list.innerHTML=shown.map(cardHtml).join("");
+  list.innerHTML=shown.map((c,i)=>cardHtml(c,i)).join("");
 }
 function toggleDone(){SHOW_DONE=!SHOW_DONE;draw();}
 function changeMonth(delta){const [y,m]=SM.split("-").map(Number);const dt=new Date(y,m-1+delta,1);SM=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");draw();}
@@ -205,7 +218,8 @@ function pill(c){
   if(!c.has_receipt) return '<span class="pill p-bad">λείπει απόδειξη</span>';
   return '<span class="pill p-warn">λείπει project</span>';
 }
-function cardHtml(c){
+function cardHtml(c,idx){
+  const fresh=idx===0?`<div style="font-size:11px;font-weight:800;color:#0f766e;background:#e6f6ec;border:1px solid #86d3a2;border-radius:99px;padding:2px 10px;display:inline-block;margin-bottom:7px">⬆ Πιο πρόσφατη χρέωση</div>`:"";
   const opts='<option value="">Διάλεξε project…</option>'+ALLP().map(p=>`<option ${c.project===p?"selected":""}>${p}</option>`).join("")+'<option value="__NEW__">➕ Άλλο (γράψε νέο)…</option>';
   const isPdf=/\.pdf(\?|$)/i.test(c.receipt_url||"");
   const ext=isPdf?"pdf":"jpg";
@@ -221,6 +235,7 @@ function cardHtml(c){
     :cv==="UNCONFIRMED"?`<div class="chkwarn q">🧐 Δεν βρέθηκε το ποσό <b>${fmt(c.amount)}</b> πάνω στην απόδειξη — σιγουρέψου ότι είναι η <b>σωστή</b> & καθαρή.</div>`
     :chkQ?`<div class="chkwarn q">📷 <b>Δεν διαβάζεται καλά</b> (θολή/κομμένη ή δεν φαίνεται το ποσό). Βγάλ' την ξανά καθαρή — ή γράψε το τελικό ποσό με <b>στυλό</b>.</div>`:"";
   return `<div class="card${chkMis?" flag":chkQ?" flagq":""}" id="c-${c.id}" onclick="ACTIVE=${c.id}">
+    ${fresh}
     <div class="row"><div><div class="amt">${fmt(c.amount)}</div><div class="mer">${c.merchant}</div><div class="when">${fdate(c.occurred_at)}</div></div>${pill(c)}</div>
     ${chkHtml}
     ${preview}
