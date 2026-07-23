@@ -72,8 +72,12 @@ const EKEY = "__config_emails__";
 // Πιλοτική ομάδα (μέχρι 1/8): Αίας Παρασκευόπουλος (3029), Άγγελος Χρονόπουλος (5588),
 // Λουκία Μπαλτζή (9600). ΜΟΝΟ αυτοί οι τρεις λαμβάνουν email — κανείς άλλος, ούτε ο CFO.
 const PILOT = String(process.env.EMAILS_PILOT || "975269802823,448933314799,657494082292").split(",").map((s) => s.trim()).filter(Boolean);
-// Το σύστημα ξεκίνησε 16/7 — δεν ζητάμε αποδείξεις για χρεώσεις προγενέστερες.
-const START_DATE = "2026-07-16";
+// ── ΗΜΕΡΟΜΗΝΙΑ ΕΝΑΡΞΗΣ ΑΝΑ ΑΤΟΜΟ ──
+// Πιλοτικοί → 16/7. ΟΛΟΙ ΟΙ ΑΛΛΟΙ → 1/8/2026: πριν από αυτό δεν τους κυνηγάμε
+// και δεν μετράμε εκκρεμότητες (οι Ιουλίου «σβήνουν»). Ο κανόνας ξεκινά 1/8.
+const START_DATE = "2026-07-16";       // παλαιό γενικό (κρατιέται για συμβατότητα)
+const GENERAL_START = "2026-08-01";
+const startFor = (w) => PILOT.includes(String(w)) ? START_DATE : GENERAL_START;
 
 // ── ΑΥΤΟΜΑΤΗ ΕΝΕΡΓΟΠΟΙΗΣΗ ──
 // Την 1η Αυγούστου 2026 τα email αρχίζουν να φεύγουν σε ΟΛΟΥΣ, μόνα τους.
@@ -391,9 +395,10 @@ module.exports = async (req, res) => {
       });
       const byW = {};
       for (const w of Object.keys(rawByW)) {
+        const startD = startFor(w); // πιλοτικός → 16/7, αλλιώς → 1/8 (Ιουλίου «σβήνουν»)
         for (const c of dedupCharges(rawByW[w])) {
           if (String(c.occurred_at || "").slice(0, 7) !== ym) continue;
-          if (String(c.occurred_at || "").slice(0, 10) < START_DATE) continue; // όχι πριν την έναρξη
+          if (String(c.occurred_at || "").slice(0, 10) < startD) continue; // όχι πριν την έναρξη του ατόμου
           const done = (c.has_receipt && c.project) || c.status === "APPROVED_LOSS" || c.status === "INTERNAL";
           if (done) continue;
           (byW[w] = byW[w] || []).push(c);

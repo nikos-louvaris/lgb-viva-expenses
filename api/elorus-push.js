@@ -8,7 +8,14 @@ const { sbSelect, sbUpdate, verifyToken, wallets } = require("./_viva.js");
 const BASE = "https://api.elorus.com/v1.1";
 const ORG = process.env.ELORUS_ORG_ID || "2802338946946696842";
 const TRACKING_ID = "2816025548696847940"; // tracking category «ΕΞΟΔΟΛΟΓΙΑ»
-const START_DATE = "2026-07-16";           // από πότε μετράει το σύστημα
+const START_DATE = "2026-07-16";           // παλαιό γενικό — κρατιέται για registration
+// ── ΗΜΕΡΟΜΗΝΙΑ ΕΝΑΡΞΗΣ ΑΝΑ ΑΤΟΜΟ ──────────────────────────────────────────
+// Οι πιλοτικοί (δηλωμένοι) μετράνε από 16/7. ΟΛΟΙ ΟΙ ΑΛΛΟΙ από 1/8/2026: πριν
+// από αυτό ΔΕΝ τους κυνηγάμε και ΔΕΝ μετράμε εκκρεμότητες — «σβήνουν» οι Ιουλίου.
+const PILOT_WALLETS = new Set(["975269802823", "448933314799", "657494082292"]);
+const PILOT_START = "2026-07-16";
+const GENERAL_START = "2026-08-01";
+const startForWallet = (wid) => PILOT_WALLETS.has(String(wid)) ? PILOT_START : GENERAL_START;
 const INTERNAL = new Set(["LGB HOME", "LBG HOME"]);
 
 // Σωστά ελληνικά ονόματα ανά κάρτα (η Viva δίνει λατινικά friendlyName).
@@ -582,17 +589,19 @@ module.exports = async (req, res) => {
       for (const wid of mem2) {
         const info = nameByWallet[wid] || {};
         const who = info.name || wid;
-        if (!perPerson[who]) perPerson[who] = { who, count: 0, amount: 0 };
+        if (!perPerson[who]) perPerson[who] = { who, count: 0, amount: 0, nudges: 0, pilot: PILOT_WALLETS.has(String(wid)) };
+        const startD = startForWallet(wid); // πιλοτικός → 16/7, αλλιώς → 1/8 (Ιουλίου «σβήνουν»)
         const raw = await sbSelect("charges", `wallet_id=eq.${wid}&order=occurred_at.desc&limit=1000`);
         for (const c of dedupCharges(raw || [])) {
-          if (athDate(c.occurred_at) < START_DATE) continue;
+          if (athDate(c.occurred_at) < startD) continue;
           const amt = Math.abs(+c.amount).toFixed(2);
           const store = cleanName(c.merchant);
           const when = grDate(c.occurred_at);
           const base = { who, card: info.card || "", amount: +amt, store, date: when, charge: c.id };
           const r0 = c.raw || {};
           // ΚΑΝΟΝΑΣ: χρειάζονται ΚΑΙ χρέωση ΚΑΙ απόδειξη ΚΑΙ project
-          const addPend = (reason) => { pending.push({ ...base, reason }); perPerson[who].count++; perPerson[who].amount += +amt; };
+          const nud = (c.raw && c.raw.rem && +c.raw.rem.n) || 0;
+          const addPend = (reason) => { pending.push({ ...base, reason }); perPerson[who].count++; perPerson[who].amount += +amt; if (nud > perPerson[who].nudges) perPerson[who].nudges = nud; };
           if (!c.has_receipt && !c.project) { addPend("λείπουν απόδειξη ΚΑΙ project"); continue; }
           if (!c.has_receipt) { addPend("λείπει η απόδειξη"); continue; }
           if (!c.project) { addPend("λείπει το project"); continue; }
@@ -630,7 +639,7 @@ module.exports = async (req, res) => {
 
       // Σύνοψη εκκρεμοτήτων ανά άτομο (όλοι, ακόμα κι όσοι έχουν 0) — ταξινομημένη φθίνουσα.
       const pendingByPerson = Object.values(perPerson).sort((a, b) => b.count - a.count || b.amount - a.amount)
-        .map((p) => ({ who: p.who, count: p.count, amount: +p.amount.toFixed(2) }));
+        .map((p) => ({ who: p.who, count: p.count, amount: +p.amount.toFixed(2), nudges: p.nudges, pilot: p.pilot }));
 
       return res.status(200).json({
         ok: true, generatedAt: new Date().toISOString(),
