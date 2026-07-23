@@ -77,7 +77,11 @@ const PILOT = String(process.env.EMAILS_PILOT || "975269802823,448933314799,6574
 // και δεν μετράμε εκκρεμότητες (οι Ιουλίου «σβήνουν»). Ο κανόνας ξεκινά 1/8.
 const START_DATE = "2026-07-16";       // παλαιό γενικό (κρατιέται για συμβατότητα)
 const GENERAL_START = "2026-08-01";
-const startFor = (w) => PILOT.includes(String(w)) ? START_DATE : GENERAL_START;
+// Το «κόψιμο» Ιουλίου για μη-πιλοτικούς ισχύει ΜΟΝΟ από 1/8 κι έπειτα (όχι από τώρα).
+const startFor = (w) => {
+  if (todayAthens() < GENERAL_START) return START_DATE;               // πριν 1/8: όλοι από 16/7
+  return PILOT.includes(String(w)) ? START_DATE : GENERAL_START;      // από 1/8: μη-πιλοτικοί καθαροί
+};
 
 // ── ΑΥΤΟΜΑΤΗ ΕΝΕΡΓΟΠΟΙΗΣΗ ──
 // Την 1η Αυγούστου 2026 τα email αρχίζουν να φεύγουν σε ΟΛΟΥΣ, μόνα τους.

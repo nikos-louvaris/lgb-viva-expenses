@@ -15,7 +15,14 @@ const START_DATE = "2026-07-16";           // παλαιό γενικό — κρ
 const PILOT_WALLETS = new Set(["975269802823", "448933314799", "657494082292"]);
 const PILOT_START = "2026-07-16";
 const GENERAL_START = "2026-08-01";
-const startForWallet = (wid) => PILOT_WALLETS.has(String(wid)) ? PILOT_START : GENERAL_START;
+// ΠΡΟΣΟΧΗ: το «κόψιμο» των Ιουλίου για τους μη-πιλοτικούς ΔΕΝ ισχύει από τώρα.
+// Μέχρι 31/7 φαίνονται κανονικά (καμία σβήσιμο). ΑΠΟ 1/8 και μετά, οι μη-πιλοτικοί
+// ξεκινούν καθαροί από 1/8 — δεν κουβαλάνε παλιές εκκρεμότητες Ιουλίου.
+const startForWallet = (wid) => {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Athens" }).format(new Date());
+  if (today < GENERAL_START) return PILOT_START;                       // πριν 1/8: όλοι όπως τώρα
+  return PILOT_WALLETS.has(String(wid)) ? PILOT_START : GENERAL_START; // από 1/8: μη-πιλοτικοί καθαροί
+};
 const INTERNAL = new Set(["LGB HOME", "LBG HOME"]);
 
 // Σωστά ελληνικά ονόματα ανά κάρτα (η Viva δίνει λατινικά friendlyName).
