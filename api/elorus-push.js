@@ -578,9 +578,11 @@ module.exports = async (req, res) => {
       const mem2 = (Array.isArray(ws2) ? ws2 : []).filter((x) => x.hasIssuedCard && !x.isPrimary && x.friendlyName && x.friendlyName !== "ακυρο" && !EXCL2.has(String(x.walletId))).map((x) => String(x.walletId));
 
       const registered = [], pending = [], problems = [];
+      const perPerson = {}; // who -> {who, count, amount} — για σύνοψη εκκρεμοτήτων ανά άτομο
       for (const wid of mem2) {
         const info = nameByWallet[wid] || {};
         const who = info.name || wid;
+        if (!perPerson[who]) perPerson[who] = { who, count: 0, amount: 0 };
         const raw = await sbSelect("charges", `wallet_id=eq.${wid}&order=occurred_at.desc&limit=1000`);
         for (const c of dedupCharges(raw || [])) {
           if (athDate(c.occurred_at) < START_DATE) continue;
@@ -590,9 +592,10 @@ module.exports = async (req, res) => {
           const base = { who, card: info.card || "", amount: +amt, store, date: when, charge: c.id };
           const r0 = c.raw || {};
           // ΚΑΝΟΝΑΣ: χρειάζονται ΚΑΙ χρέωση ΚΑΙ απόδειξη ΚΑΙ project
-          if (!c.has_receipt && !c.project) { pending.push({ ...base, reason: "λείπουν απόδειξη ΚΑΙ project" }); continue; }
-          if (!c.has_receipt) { pending.push({ ...base, reason: "λείπει η απόδειξη" }); continue; }
-          if (!c.project) { pending.push({ ...base, reason: "λείπει το project" }); continue; }
+          const addPend = (reason) => { pending.push({ ...base, reason }); perPerson[who].count++; perPerson[who].amount += +amt; };
+          if (!c.has_receipt && !c.project) { addPend("λείπουν απόδειξη ΚΑΙ project"); continue; }
+          if (!c.has_receipt) { addPend("λείπει η απόδειξη"); continue; }
+          if (!c.project) { addPend("λείπει το project"); continue; }
           if (r0.elorus_id) {
             const kindR = docType(r0, pickCategory(c.merchant), {});
             const supR = r0.elorus_supplier && r0.elorus_supplier !== "none" ? r0.elorus_supplier : null;
@@ -625,10 +628,14 @@ module.exports = async (req, res) => {
       }
       L.push(``, `Κανόνας: τίποτα δεν καταχωρείται χωρίς χρέωση + απόδειξη + project.`);
 
+      // Σύνοψη εκκρεμοτήτων ανά άτομο (όλοι, ακόμα κι όσοι έχουν 0) — ταξινομημένη φθίνουσα.
+      const pendingByPerson = Object.values(perPerson).sort((a, b) => b.count - a.count || b.amount - a.amount)
+        .map((p) => ({ who: p.who, count: p.count, amount: +p.amount.toFixed(2) }));
+
       return res.status(200).json({
         ok: true, generatedAt: new Date().toISOString(),
         counts: { registered: registered.length, pending: pending.length, problems: problems.length },
-        registered, pending, problems, text: L.join("\n"),
+        registered, pending, problems, pendingByPerson, text: L.join("\n"),
       });
     }
 
