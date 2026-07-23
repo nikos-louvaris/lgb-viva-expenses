@@ -138,9 +138,16 @@ function compose(firstName, walletId, card, miss, type) {
   const subject = type === "MONTH_END"
     ? `🔴 Ο μήνας κλείνει — εκκρεμότητες ${fmt(total)}`
     : `⏰ ${firstName}, λείπουν ${miss.length} αποδείξεις/project (${fmt(total)})`;
+  const nLbl = miss.length === 1 ? "1 χρέωση" : `${miss.length} χρεώσεις`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1a1a2e">
     <h2 style="font-size:17px">${firstName}, έχεις ${miss.length} χρεώσεις που θέλουν τακτοποίηση:</h2>
-    <table style="border-collapse:collapse;width:100%;background:#f8f9fb;border-radius:8px">${rows}</table>
+    <div style="display:flex;gap:10px;background:#eef1ff;border:1px solid #c9d0f5;border-radius:10px;padding:12px 16px;margin:0 0 12px;align-items:center;justify-content:space-between">
+      <span style="font-size:14px;color:#2a3157">📊 <b>${nLbl}</b> σε εκκρεμότητα</span>
+      <span style="font-size:20px;font-weight:800;color:#2647c4">σύνολο ${fmt(total)}</span>
+    </div>
+    <table style="border-collapse:collapse;width:100%;background:#f8f9fb;border-radius:8px">${rows}
+      <tr style="border-top:2px solid #d5d9e6"><td colspan="2" style="padding:8px 10px;font-weight:700">Σύνολο (${miss.length})</td><td style="padding:8px 10px;text-align:right;font-weight:800;color:#2647c4">${fmt(total)}</td><td></td></tr>
+    </table>
     <div style="background:#fffbea;border:1px solid #f6d55c;border-radius:8px;padding:10px 12px;margin:12px 0;font:13px Arial;color:#5f4b00">📸 Η φωτογραφία να είναι καθαρή: ολόκληρη η απόδειξη, ίσια, να διαβάζεται το ποσό. Όχι θολή, όχι κομμένη. Αν είναι ξεθωριασμένη, γράψε πάνω της με στυλό το ποσό.</div>
     <p><a href="${link}" style="background:#4f46e5;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Άνοιξε τη σελίδα σου ➜</a></p>
     <p style="color:#555;font-size:13px">Μπες, ανέβασε φωτ. απόδειξης + διάλεξε project. Ό,τι μείνει χωρίς απόδειξη στο τέλος του μήνα, συμψηφίζεται με την αμοιβή σου από τα βίντεο (επιστρέφεται αν προσκομιστεί μετά).</p>
