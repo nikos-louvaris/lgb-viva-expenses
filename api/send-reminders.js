@@ -300,6 +300,21 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, seeded: Object.keys(map).length });
     }
 
+    // ── ΕΙΔΟΠΟΙΗΣΗ ΚΩΣΤΑ ΜΟΝΟ ΓΙΑ ΠΡΑΓΜΑΤΙΚΟ, ΑΛΥΤΟ ΠΡΟΒΛΗΜΑ ──────────────
+    // Ο Θέμης καλεί αυτό ΜΟΝΟ όταν κάτι χρειάζεται ανθρώπινη απόφαση/ενέργεια και
+    // δεν λύνεται μόνο του. Πάει κατευθείαν στον Κώστα (REVIEW). Καμία άλλη περίπτωση.
+    if (action === "alert") {
+      const subject = String(q.subject || (body && body.subject) || "Θέμης — χρειάζεται η προσοχή σου");
+      const msg = String(q.msg || (body && body.msg) || "");
+      const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1a1a2e">
+        <h2 style="font-size:17px;color:#b3260a">⚠️ Θέμης — πραγματικό θέμα που δεν λύθηκε αυτόματα</h2>
+        <div style="background:#fdeef0;border:1px solid #f2c4cb;border-radius:10px;padding:14px 16px;font-size:14px;line-height:1.6;white-space:pre-wrap">${msg.replace(/</g, "&lt;")}</div>
+        <p style="color:#555;font-size:13px;margin-top:14px">Έλαβες αυτό γιατί χρειάζεται δική σου ενέργεια — τα υπόλοιπα ο Θέμης τα διαχειρίζεται μόνος του χωρίς να σε ενοχλεί.</p>
+        <p style="font-size:11px;color:#999">Αυτόματο μήνυμα — Θέμης, Σύστημα Εξόδων LGB.</p></div>`;
+      const r = await resend(REVIEW, "🔴 " + subject, html, msg);
+      return res.status(200).json({ ok: r.ok, to: REVIEW, sent: r.ok, resend: r });
+    }
+
     if (action === "test") {
       const to = q.to || (body && body.to) || REVIEW;
       const s = compose("Κώστα", "566240519800", "1288", [
