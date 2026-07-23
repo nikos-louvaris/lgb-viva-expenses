@@ -129,6 +129,29 @@ async function resend(to, subject, html, text, fromOverride) {
 function compose(firstName, walletId, card, miss, type) {
   const link = `${BASE}/me.html?w=${walletId}&t=${personToken(walletId)}`;
   const total = miss.reduce((s, c) => s + Math.abs(+c.amount), 0);
+  // ── ΠΩΣ ΣΤΟΙΒΑΖΕΤΑΙ ΤΟ ΥΠΟΛΟΙΠΟ (σήμερα / εβδομάδα / μήνας) ──────────────
+  // Δείχνει τον όγκο που «τρέχει»: όσο μένουν ατακτοποίητες, το σύνολο μεγαλώνει.
+  const athDay = (iso) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Athens", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+  const nowT = Date.now();
+  const todayStr = athDay(nowT);
+  const sumIf = (fn) => miss.filter(fn).reduce((s, c) => s + Math.abs(+c.amount), 0);
+  const nIf = (fn) => miss.filter(fn).length;
+  const dayS = sumIf((c) => athDay(c.occurred_at) === todayStr);
+  const dayN = nIf((c) => athDay(c.occurred_at) === todayStr);
+  const wkS = sumIf((c) => (nowT - new Date(c.occurred_at).getTime()) <= 7 * 24 * 3600e3);
+  const wkN = nIf((c) => (nowT - new Date(c.occurred_at).getTime()) <= 7 * 24 * 3600e3);
+  // κελί «κλίμακας»: γεμίζει όσο ανεβαίνει το ποσό — οπτικά δείχνει την αύξηση
+  const growCell = (lbl, n, s, hi) => `<td style="padding:10px 8px;text-align:center;border-radius:9px;background:${hi ? "#fdeef0" : "#f4f6fb"};border:1px solid ${hi ? "#f2c4cb" : "#e2e6ef"}">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.3px">${lbl}</div>
+      <div style="font-size:18px;font-weight:800;color:${hi ? "#b3260a" : "#2647c4"};margin-top:3px">${fmt(s)}</div>
+      <div style="font-size:11px;color:#8a92a8;margin-top:2px">${n} ${n === 1 ? "χρέωση" : "χρεώσεις"}</div></td>`;
+  const growBox = `<div style="margin:0 0 12px">
+    <div style="font-size:13px;font-weight:700;color:#2a3157;margin:0 0 7px">📈 Πώς μεγαλώνει το υπόλοιπό σου — όσο περνά ο καιρός, στοιβάζεται:</div>
+    <table style="border-collapse:separate;border-spacing:7px 0;width:100%"><tr>
+      ${growCell("Σήμερα", dayN, dayS, false)}
+      ${growCell("Τελευτ. 7 ημέρες", wkN, wkS, false)}
+      ${growCell("Σύνολο μήνα", miss.length, total, true)}
+    </tr></table></div>`;
   const rows = miss.map((c) => {
     const d = new Date(c.occurred_at);
     const dd = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -145,6 +168,7 @@ function compose(firstName, walletId, card, miss, type) {
       <span style="font-size:14px;color:#2a3157">📊 <b>${nLbl}</b> σε εκκρεμότητα</span>
       <span style="font-size:20px;font-weight:800;color:#2647c4">σύνολο ${fmt(total)}</span>
     </div>
+    ${growBox}
     <table style="border-collapse:collapse;width:100%;background:#f8f9fb;border-radius:8px">${rows}
       <tr style="border-top:2px solid #d5d9e6"><td colspan="2" style="padding:8px 10px;font-weight:700">Σύνολο (${miss.length})</td><td style="padding:8px 10px;text-align:right;font-weight:800;color:#2647c4">${fmt(total)}</td><td></td></tr>
     </table>
