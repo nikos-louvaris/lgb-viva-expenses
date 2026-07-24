@@ -339,26 +339,30 @@ function extractInvoice(text){
 // τιμολογίου. Μπλόκο μπαίνει ΜΟΝΟ σε πραγματικά άχρηστη εικόνα (σχεδόν μαύρη/κενή).
 async function qualityCheck(dataUrl,amount){
   const met=await imgMetrics(dataUrl);
-  // Μπλόκο ΜΟΝΟ σε ακραία περίπτωση: σχεδόν μαύρη ή εντελώς θαμπή (χαμήλωσαν πολύ τα όρια).
+  // Απορρίπτουμε ΜΟΝΟ πραγματικά άχρηστη εικόνα (σχεδόν μαύρη ή εντελώς θαμπή). Ακραία όρια.
   if(met&&met.bright<22) return {ok:false,issue:"dark",check:{verdict:"UNVERIFIED",src:"metrics"}};
   if(met&&met.sharp<4)  return {ok:false,issue:"blurry",check:{verdict:"UNVERIFIED",src:"metrics"}};
+  const ocrOn=(typeof Tesseract!=="undefined");   // αν το OCR δεν φόρτωσε, ΔΕΝ μπλοκάρουμε καθόλου
   const small=await downscale(dataUrl,1200);
-  const text=await ocrText(small);
+  const text=ocrOn?await ocrText(small):"";
   const a=Math.abs(+amount||0);
   const dot=a.toFixed(2),comma=dot.replace(".",","),cents=String(Math.round(a*100));
   const compact=text.replace(/[.,\s]/g,"");
   const found=a>0&&(text.includes(dot)||text.includes(comma)||compact.includes(cents));
   const inv=extractInvoice(text);
-  // ΒΡΕΘΗΚΕ το ποσό → OK. ΔΕΝ βρέθηκε → ΔΕΝ μπλοκάρουμε: ok=true, απλώς «UNVERIFIED»
-  // (μακρινή/θερμική φωτο συχνά δεν διαβάζεται από OCR — δεν πειράζει, το ποσό το ξέρει η Viva).
+  // ΠΟΛΥ ΜΑΚΡΙΝΗ / ΚΟΜΜΕΝΗ / ΔΥΣΑΝΑΓΝΩΣΤΗ: το OCR έτρεξε αλλά βρήκε ΕΛΑΧΙΣΤΑ γράμματα.
+  // Μια κανονική απόδειξη (ακόμα & στραβή/τσαλακωμένη) δίνει δεκάδες χαρακτήρες — μόνο μια
+  // πραγματικά μακρινή/μισή/άχρηστη πέφτει κάτω από το όριο. (Αν το OCR δεν έτρεξε, ΔΕΝ μπλοκάρει.)
+  const alnum=text.replace(/[^0-9A-Za-zΑ-Ωα-ω]/g,"").length;
+  if(ocrOn && text!=="" && alnum<18) return {ok:false,issue:"faraway",check:{verdict:"UNVERIFIED",src:"ocr",invoice:inv}};
+  // Αλλιώς ΑΝΕΒΑΙΝΕΙ. Βρέθηκε ποσό → OK · δεν βρέθηκε → «UNVERIFIED» (χωρίς μπλόκο· το ποσό το ξέρει η Viva).
   return {ok:true,check:{verdict:found?"OK":"UNVERIFIED",src:"ocr",invoice:inv}};
 }
 const ISSUE_MSG={
-  dark:{t:"Πολύ σκοτεινή φωτογραφία",b:"Δεν διαβάζεται γιατί είναι <b>σκοτεινή</b>. Τράβα την σε <b>καλό φως</b> και ξαναδοκίμασε."},
-  blurry:{t:"Θολή / ζαρωμένη φωτο",b:"Η φωτογραφία είναι <b>θολή, κουνημένη ή ζαρωμένη</b>. Κράτα σταθερά το κινητό, <b>ίσιωσε</b> την απόδειξη και ξαναβγάλ' την καθαρή."},
-  small:{t:"Πολύ μακρινή / μικρή",b:"Η απόδειξη φαίνεται <b>πολύ μακριά</b> και δεν αναγνωρίζονται τα γράμματα. <b>Πλησίασε</b> να γεμίζει το κάδρο."},
-  nototal:{t:"Δεν φαίνεται το τελικό ποσό",b:"Δεν βρήκα το <b>τελικό ποσό</b> — ή ανέβασες <b>λάθος</b> απόδειξη. Βεβαιώσου ότι το <b>ΣΥΝΟΛΟ</b> είναι ολόκληρο & καθαρό στο κάδρο (ή γράψε το με <b>στυλό</b>)."},
-  unreadable:{t:"Δεν αναγνωρίζεται",b:"Η φωτο δεν διαβάζεται. Θέλει <b>καθαρή, ίσια, κοντινή</b> λήψη με καλό φως — ή γράψε το τελικό ποσό με <b>στυλό</b>."}
+  dark:{t:"Πολύ σκοτεινή φωτογραφία",b:"Η φωτο βγήκε <b>σχεδόν μαύρη</b> και δεν διαβάζεται. Τράβα την σε <b>καλό φως</b>."},
+  blurry:{t:"Πολύ θολή φωτογραφία",b:"Η φωτο είναι <b>εντελώς θολή/κουνημένη</b> και δεν διαβάζεται. Κράτα σταθερά το κινητό."},
+  faraway:{t:"Πολύ μακρινή ή κομμένη",b:"Η απόδειξη φαίνεται <b>πολύ μακριά ή μισή</b> — δεν αναγνωρίζεται τι γράφει. <b>Πλησίασε</b> να γεμίζει το κάδρο <b>ολόκληρη</b>."},
+  unreadable:{t:"Δεν αναγνωρίζεται",b:"Η φωτο δεν διαβάζεται καθόλου. Θέλει μια <b>κοντινή, ολόκληρη</b> λήψη."}
 };
 let PENDING=null;
 // ΗΠΙΟ ερώτημα (ΜΟΝΟ για σχεδόν μαύρη/εντελώς θαμπή εικόνα): προτεινόμενη ενέργεια =
@@ -372,8 +376,8 @@ function softAskRetake(id,issue,dataUrl){
     <div style="font-size:44px">📷</div>
     <div style="font-size:18px;font-weight:800;color:#8a5300;margin:8px 0 6px">${mm.t}</div>
     <div style="font-size:14px;color:#333;line-height:1.5">${mm.b}</div>
-    <button onclick="forceUpload()" style="margin-top:14px;width:100%;padding:13px;background:#2e7d32;color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">✅ Ανέβασέ την έτσι — είναι εντάξει</button>
-    <button onclick="retakeShot(${id})" style="margin-top:8px;width:100%;padding:11px;background:#fff;color:#5b6478;border:1px solid #d7dbea;border-radius:11px;font-weight:600;font-size:13px;cursor:pointer">📷 Θα βγάλω μία πιο καθαρή</button>
+    <button onclick="retakeShot(${id})" style="margin-top:14px;width:100%;padding:13px;background:#4f46e5;color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">📷 Βγάλε μία καλύτερη</button>
+    <button onclick="forceUpload()" style="margin-top:8px;width:100%;padding:10px;background:#fff;color:#8a92a8;border:1px solid #e2e6ef;border-radius:11px;font-weight:600;font-size:12.5px;cursor:pointer">Ανέβασέ την έτσι πάντως</button>
   </div>`;
   el.style.display="flex";
 }
