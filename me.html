@@ -333,24 +333,25 @@ function extractInvoice(text){
   return {isInvoice,number,date,vat};
 }
 // Έλεγχος ποιότητας + ποσού. Επιστρέφει {ok, issue, check}. Αν ok=false → ΔΕΝ ανεβαίνει, βγαίνει κόκκινο με το ΣΥΓΚΕΚΡΙΜΕΝΟ λάθος.
+// ΦΙΛΟΣΟΦΙΑ (νέα): Η απόδειξη ΑΝΕΒΑΙΝΕΙ ΠΑΝΤΑ. Το OCR ΔΕΝ εμποδίζει τον χρήστη —
+// το ποσό επιβεβαιώνεται ΑΠΟ ΤΗ VIVA (αδιαμφισβήτητη πηγή), όχι από τη φωτο. Ο έλεγχος
+// κρατά μόνο μια ΗΠΙΑ ένδειξη («OK» ή «UNVERIFIED») για τη λογιστική + τα στοιχεία
+// τιμολογίου. Μπλόκο μπαίνει ΜΟΝΟ σε πραγματικά άχρηστη εικόνα (σχεδόν μαύρη/κενή).
 async function qualityCheck(dataUrl,amount){
   const met=await imgMetrics(dataUrl);
-  // Γρήγορη απόρριψη ΧΩΡΙΣ OCR όταν είναι προφανώς κακή (στιγμιαίο)
-  if(met&&met.bright<52) return {ok:false,issue:"dark",check:{verdict:"UNREADABLE",src:"metrics"}};
-  if(met&&met.sharp<12) return {ok:false,issue:"blurry",check:{verdict:"UNREADABLE",src:"metrics"}};
-  // OCR σε μικρότερη εικόνα, με επαναχρησιμοποιούμενο worker (πιο γρήγορο)
+  // Μπλόκο ΜΟΝΟ σε ακραία περίπτωση: σχεδόν μαύρη ή εντελώς θαμπή (χαμήλωσαν πολύ τα όρια).
+  if(met&&met.bright<22) return {ok:false,issue:"dark",check:{verdict:"UNVERIFIED",src:"metrics"}};
+  if(met&&met.sharp<4)  return {ok:false,issue:"blurry",check:{verdict:"UNVERIFIED",src:"metrics"}};
   const small=await downscale(dataUrl,1200);
   const text=await ocrText(small);
   const a=Math.abs(+amount||0);
   const dot=a.toFixed(2),comma=dot.replace(".",","),cents=String(Math.round(a*100));
   const compact=text.replace(/[.,\s]/g,"");
   const found=a>0&&(text.includes(dot)||text.includes(comma)||compact.includes(cents));
-  // Το ίδιο κείμενο δίνει και τα στοιχεία τιμολογίου — μηδέν επιπλέον κόστος.
   const inv=extractInvoice(text);
-  if(found) return {ok:true,check:{verdict:"OK",src:"ocr",invoice:inv}};
-  const alnum=text.replace(/[^0-9A-Za-zΑ-Ωα-ω]/g,"").length;
-  const issue = alnum<12 ? "small" : "nototal";
-  return {ok:false,issue,check:{verdict:"UNREADABLE",src:"ocr",invoice:inv}};
+  // ΒΡΕΘΗΚΕ το ποσό → OK. ΔΕΝ βρέθηκε → ΔΕΝ μπλοκάρουμε: ok=true, απλώς «UNVERIFIED»
+  // (μακρινή/θερμική φωτο συχνά δεν διαβάζεται από OCR — δεν πειράζει, το ποσό το ξέρει η Viva).
+  return {ok:true,check:{verdict:found?"OK":"UNVERIFIED",src:"ocr",invoice:inv}};
 }
 const ISSUE_MSG={
   dark:{t:"Πολύ σκοτεινή φωτογραφία",b:"Δεν διαβάζεται γιατί είναι <b>σκοτεινή</b>. Τράβα την σε <b>καλό φως</b> και ξαναδοκίμασε."},
@@ -360,18 +361,19 @@ const ISSUE_MSG={
   unreadable:{t:"Δεν αναγνωρίζεται",b:"Η φωτο δεν διαβάζεται. Θέλει <b>καθαρή, ίσια, κοντινή</b> λήψη με καλό φως — ή γράψε το τελικό ποσό με <b>στυλό</b>."}
 };
 let PENDING=null;
-function blockModal(id,issue,dataUrl){
+// ΗΠΙΟ ερώτημα (ΜΟΝΟ για σχεδόν μαύρη/εντελώς θαμπή εικόνα): προτεινόμενη ενέργεια =
+// «Ανέβασέ την έτσι». Δεν μπλοκάρουμε, δεν τρομάζουμε — απλώς προτείνουμε μια καλύτερη λήψη.
+function softAskRetake(id,issue,dataUrl){
   PENDING={id,dataUrl};const mm=ISSUE_MSG[issue]||ISSUE_MSG.unreadable;
   let el=document.getElementById("verdictModal");
   if(!el){el=document.createElement("div");el.id="verdictModal";el.style.cssText="position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;padding:20px";document.body.appendChild(el);}
-  el.style.background="rgba(120,10,10,.55)";
-  el.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:430px;width:100%;padding:22px;text-align:center;border-top:8px solid #d93025;box-shadow:0 12px 40px rgba(0,0,0,.3)">
-    <div style="font-size:44px">🚫</div>
-    <div style="font-size:19px;font-weight:800;color:#c5221f;margin:8px 0 6px">${mm.t}</div>
+  el.style.background="rgba(60,45,0,.45)";
+  el.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:430px;width:100%;padding:22px;text-align:center;border-top:8px solid #e8a24a;box-shadow:0 12px 40px rgba(0,0,0,.3)">
+    <div style="font-size:44px">📷</div>
+    <div style="font-size:18px;font-weight:800;color:#8a5300;margin:8px 0 6px">${mm.t}</div>
     <div style="font-size:14px;color:#333;line-height:1.5">${mm.b}</div>
-    <div style="font-size:12px;color:#c5221f;font-weight:700;margin-top:8px">⛔ Η απόδειξη ΔΕΝ ανέβηκε — ξαναβγάλ' την σωστά.</div>
-    <button onclick="retakeShot(${id})" style="margin-top:14px;width:100%;padding:13px;background:#d93025;color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">📷 Ξαναβγάλε φωτογραφία</button>
-    <button onclick="forceUpload()" style="margin-top:8px;width:100%;padding:10px;background:#fff;color:#777;border:1px solid #ddd;border-radius:11px;font-weight:600;font-size:12.5px;cursor:pointer">Είμαι σίγουρος ότι είναι σωστή — ανέβασέ την έτσι</button>
+    <button onclick="forceUpload()" style="margin-top:14px;width:100%;padding:13px;background:#2e7d32;color:#fff;border:none;border-radius:11px;font-weight:800;font-size:15px;cursor:pointer">✅ Ανέβασέ την έτσι — είναι εντάξει</button>
+    <button onclick="retakeShot(${id})" style="margin-top:8px;width:100%;padding:11px;background:#fff;color:#5b6478;border:1px solid #d7dbea;border-radius:11px;font-weight:600;font-size:13px;cursor:pointer">📷 Θα βγάλω μία πιο καθαρή</button>
   </div>`;
   el.style.display="flex";
 }
@@ -388,9 +390,11 @@ async function doPost(id,dataUrl,check){
 }
 async function handleImage(id,dataUrl){
   const card=document.getElementById("c-"+id);if(card)card.classList.add("busy");
-  toast("⏳ Ελέγχω τη φωτογραφία… περίμενε",12000);
+  toast("⏳ Ανεβαίνει η απόδειξη…",9000);
   const q=await qualityCheck(dataUrl,amtOf(id));
-  if(!q.ok){ if(card)card.classList.remove("busy"); blockModal(id,q.issue,dataUrl); return; }
+  // ΠΑΝΤΑ ανεβαίνει. Μόνο σε πραγματικά άχρηστη εικόνα (σχεδόν μαύρη/θαμπή) ρωτάμε ευγενικά —
+  // αλλά ακόμα κι εκεί ο χρήστης μπορεί να την ανεβάσει με ένα πάτημα.
+  if(!q.ok){ if(card)card.classList.remove("busy"); softAskRetake(id,q.issue,dataUrl); return; }
   await doPost(id,dataUrl,q.check);
 }
 async function upload(id,input){
